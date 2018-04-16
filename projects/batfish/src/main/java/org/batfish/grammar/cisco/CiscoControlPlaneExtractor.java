@@ -365,7 +365,9 @@ import org.batfish.grammar.cisco.CiscoParser.Logging_severityContext;
 import org.batfish.grammar.cisco.CiscoParser.Logging_source_interfaceContext;
 import org.batfish.grammar.cisco.CiscoParser.Logging_trapContext;
 import org.batfish.grammar.cisco.CiscoParser.Management_telnet_ip_access_groupContext;
+import org.batfish.grammar.cisco.CiscoParser.Match_as_number_rm_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Match_as_path_access_list_rm_stanzaContext;
+import org.batfish.grammar.cisco.CiscoParser.Match_as_rm_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Match_community_list_rm_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Match_ip_access_list_rm_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Match_ip_prefix_list_rm_stanzaContext;
@@ -636,6 +638,7 @@ import org.batfish.representation.cisco.RouteMapMatchIpAccessListLine;
 import org.batfish.representation.cisco.RouteMapMatchIpPrefixListLine;
 import org.batfish.representation.cisco.RouteMapMatchIpv6AccessListLine;
 import org.batfish.representation.cisco.RouteMapMatchIpv6PrefixListLine;
+import org.batfish.representation.cisco.RouteMapMatchRemoteAsLine;
 import org.batfish.representation.cisco.RouteMapMatchTagLine;
 import org.batfish.representation.cisco.RouteMapSetAdditiveCommunityLine;
 import org.batfish.representation.cisco.RouteMapSetAdditiveCommunityListLine;
@@ -4335,6 +4338,15 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   }
 
   @Override
+  public void exitMatch_as_number_rm_stanza(Match_as_number_rm_stanzaContext ctx) {
+    // TODO: parse and implement the remaining functionality of this stanza. See
+    // https://www.cisco.com/c/m/en_us/techdoc/dc/reference/cli/nxos/commands/bgp/match-as-number.html
+    int asn = toInteger(ctx.num);
+    RouteMapMatchRemoteAsLine line = new RouteMapMatchRemoteAsLine(asn);
+    _currentRouteMapClause.addMatchLine(line);
+  }
+
+  @Override
   public void exitMatch_as_path_access_list_rm_stanza(
       Match_as_path_access_list_rm_stanzaContext ctx) {
     int statementLine = ctx.getStart().getLine();
@@ -4344,6 +4356,13 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
     }
     RouteMapMatchAsPathAccessListLine line =
         new RouteMapMatchAsPathAccessListLine(names, statementLine);
+    _currentRouteMapClause.addMatchLine(line);
+  }
+
+  @Override
+  public void exitMatch_as_rm_stanza(Match_as_rm_stanzaContext ctx) {
+    int asn = toInteger(ctx.num);
+    RouteMapMatchRemoteAsLine line = new RouteMapMatchRemoteAsLine(asn);
     _currentRouteMapClause.addMatchLine(line);
   }
 

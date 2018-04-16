@@ -22,17 +22,11 @@ public class ExplicitAs extends AsExpr {
     if (this == obj) {
       return true;
     }
-    if (obj == null) {
-      return false;
-    }
-    if (getClass() != obj.getClass()) {
+    if (!(obj instanceof ExplicitAs)) {
       return false;
     }
     ExplicitAs other = (ExplicitAs) obj;
-    if (_as != other._as) {
-      return false;
-    }
-    return true;
+    return _as == other._as;
   }
 
   @Override

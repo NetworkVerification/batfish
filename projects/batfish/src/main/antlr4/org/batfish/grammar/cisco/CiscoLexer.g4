@@ -846,6 +846,16 @@ ARP
 
 ;
 
+AS
+:
+   'as'
+;
+
+AS_NUMBER
+:
+   'as-number'
+;
+
 AS_OVERRIDE
 :
    'as-override'
@@ -864,11 +874,6 @@ AS_PATH_SET
 AS_SET
 :
    'as-set'
-;
-
-AS
-:
-   'as'
 ;
 
 ASA

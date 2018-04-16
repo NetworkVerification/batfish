@@ -227,17 +227,17 @@ isis_level_expr
    | RP_VARIABLE
 ;
 
+match_as_number_rm_stanza
+:
+   MATCH AS_NUMBER num = DEC+ NEWLINE
+;
+
 match_as_path_access_list_rm_stanza
 :
    MATCH AS_PATH
    (
       name_list += variable
    )+ NEWLINE
-;
-
-match_as_rm_stanza
-:
-   MATCH AS num = DEC NEWLINE
 ;
 
 match_community_list_rm_stanza
@@ -338,6 +338,7 @@ match_rm_stanza
 :
    match_as_path_access_list_rm_stanza
    | match_as_rm_stanza
+   | match_as_number_rm_stanza
    | match_community_list_rm_stanza
    | match_extcommunity_rm_stanza
    | match_interface_rm_stanza
