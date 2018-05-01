@@ -1,5 +1,7 @@
 package org.batfish.representation.cisco;
 
+import static com.google.common.base.MoreObjects.firstNonNull;
+
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Map;
@@ -7,11 +9,18 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.batfish.common.Warnings;
+import org.batfish.datamodel.BgpNeighbor;
+import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.InterfaceAddress;
 import org.batfish.datamodel.Ip;
+import org.batfish.datamodel.Prefix;
+import org.batfish.representation.cisco.nx.CiscoNxBgpVrfAddressFamilyConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfConfiguration;
+import org.batfish.representation.cisco.nx.CiscoNxBgpVrfNeighborAddressFamilyConfiguration;
+import org.batfish.representation.cisco.nx.CiscoNxBgpVrfNeighborConfiguration;
 
 /**
  * A utility class for converting between Cisco NX-OS configurations and the Batfish
@@ -90,6 +99,71 @@ final class CiscoNxConversions {
             "%s. Making a non-deterministic choice from associated interfaces", messageBase));
     assert lowestIp.isPresent(); // This cannot happen if interfaces is non-empty.
     return lowestIp.get();
+  }
+
+  @Nonnull
+  static BgpNeighbor toBgpNeighbor(
+      @Nonnull Configuration c,
+      @Nonnull org.batfish.datamodel.Vrf vrf,
+      @Nonnull Prefix prefix,
+      @Nonnull CiscoNxBgpVrfConfiguration vrfConfig,
+      @Nonnull CiscoNxBgpVrfNeighborConfiguration neighbor,
+      @Nonnull Warnings w) {
+    BgpNeighbor newNeighbor =
+        new BgpNeighbor(prefix, c, prefix.getPrefixLength() < Prefix.MAX_PREFIX_LENGTH);
+
+    newNeighbor.setDescription(neighbor.getDescription());
+    newNeighbor.setVrf(vrf.getName());
+    if (neighbor.getRemoteAs() != null) {
+      long asn = neighbor.getRemoteAs();
+      if (asn >= (1 << 16)) {
+        w.redFlag(
+            String.format(
+                "4-byte AS numbers are not fully supported: vrf %s neighbor %s remote-as %d",
+                vrf.getName(), prefix, asn));
+      }
+      newNeighbor.setRemoteAs((int) asn);
+    }
+
+    if (neighbor.getLocalAs() != null) {
+      long asn = neighbor.getLocalAs();
+      if (asn >= (1 << 16)) {
+        w.redFlag(
+            String.format(
+                "4-byte AS numbers are not fully supported: vrf %s neighbor %s local-as %d",
+                vrf.getName(), prefix, asn));
+      }
+      newNeighbor.setLocalAs((int) asn);
+    } else if (vrfConfig.getLocalAs() != null) {
+      long asn = vrfConfig.getLocalAs();
+      if (asn >= (1 << 16)) {
+        w.redFlag(
+            String.format(
+                "4-byte AS numbers are not fully supported: vrf %s neighbor %s local-as %d",
+                vrf.getName(), prefix, asn));
+      }
+      newNeighbor.setLocalAs((int) asn);
+    }
+
+    if (vrfConfig.getClusterId() != null) {
+      newNeighbor.setClusterId(vrfConfig.getClusterId().asLong());
+    }
+
+    newNeighbor.setEbgpMultihop(firstNonNull(neighbor.getEbgpMultihopTtl(), 0) > 1);
+
+    @Nullable
+    CiscoNxBgpVrfNeighborAddressFamilyConfiguration naf4 = neighbor.getIpv4UnicastAddressFamily();
+    if (naf4 != null) {
+      newNeighbor.setAllowLocalAsIn(firstNonNull(naf4.getAllowAsIn(), Boolean.FALSE));
+      newNeighbor.setSendCommunity(firstNonNull(naf4.getSendCommunityStandard(), Boolean.FALSE));
+    }
+    @Nullable CiscoNxBgpVrfAddressFamilyConfiguration af4 = vrfConfig.getIpv4UnicastAddressFamily();
+    if (af4 != null) {
+      newNeighbor.setRouteReflectorClient(
+          vrfConfig.getIpv4UnicastAddressFamily().getClientToClientReflection());
+    }
+
+    return newNeighbor;
   }
 
   private CiscoNxConversions() {} // prevent instantiation of utility class.

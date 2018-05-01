@@ -1,10 +1,12 @@
 package org.batfish.representation.cisco.nx;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.Map;
 import java.util.TreeMap;
 import javax.annotation.Nullable;
 import org.batfish.datamodel.Ip;
+import org.batfish.datamodel.Prefix;
 
 /**
  * Represents the top-level configuration of a VRF in a BGP process for Cisco NX-OS.
@@ -20,6 +22,7 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
     this._clusterId = null; // route reflection is disabled by default.
     this._logNeighborChanges = false; // disabled by default
     this._maxAsLimit = null; // default no limit
+    this._neighbors = new TreeMap<>(); // no neighbors by default.
     this._routerId = null; // use device's default router id unless overridden.
   }
 
@@ -35,6 +38,14 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
 
   public CiscoNxBgpVrfAddressFamilyConfiguration getOrCreateAddressFamily(String af) {
     return _addressFamilies.computeIfAbsent(af, a -> new CiscoNxBgpVrfAddressFamilyConfiguration());
+  }
+
+  public CiscoNxBgpVrfNeighborConfiguration getOrCreateNeighbor(Prefix prefix) {
+    return _neighbors.computeIfAbsent(prefix, p -> new CiscoNxBgpVrfNeighborConfiguration());
+  }
+
+  public Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> getNeighbors() {
+    return Collections.unmodifiableMap(_neighbors);
   }
 
   public boolean getBestpathAlwaysCompareMed() {
@@ -145,9 +156,10 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
   private boolean _bestpathMedConfed;
   private boolean _bestpathMedMissingAsWorst;
   private boolean _bestpathMedNonDeterministic;
+  @Nullable private Ip _clusterId;
   @Nullable private Long _localAs;
   private boolean _logNeighborChanges;
-  @Nullable private Ip _clusterId;
   @Nullable private Integer _maxAsLimit;
+  private final Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> _neighbors;
   @Nullable private Ip _routerId;
 }

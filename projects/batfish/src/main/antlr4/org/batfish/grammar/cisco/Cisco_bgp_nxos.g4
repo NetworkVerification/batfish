@@ -356,7 +356,7 @@ rbnx_n_common
 
 rbnx_n_address_family
 :
-    ADDRESS_FAMILY (IPV4 | IPV6) (MULTICAST | UNICAST) NEWLINE
+    ADDRESS_FAMILY first = (IPV4 | IPV6) second = (MULTICAST | UNICAST) NEWLINE
     rbnx_n_af_inner*
 ;
 

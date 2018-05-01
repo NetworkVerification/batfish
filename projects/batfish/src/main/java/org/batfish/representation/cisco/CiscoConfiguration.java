@@ -1,5 +1,6 @@
 package org.batfish.representation.cisco;
 
+import static com.google.common.base.MoreObjects.firstNonNull;
 import static org.batfish.common.util.CommonUtil.toImmutableMap;
 import static org.batfish.datamodel.MultipathEquivalentAsPathMatchMode.EXACT_PATH;
 import static org.batfish.datamodel.MultipathEquivalentAsPathMatchMode.PATH_LENGTH;
@@ -1326,6 +1327,24 @@ public final class CiscoConfiguration extends VendorConfiguration {
       newBgpProcess.setMultipathEbgp(ipv4af.getMaximumPathsEbgp() > 1);
       newBgpProcess.setMultipathIbgp(ipv4af.getMaximumPathsIbgp() > 1);
     }
+
+    newBgpProcess.setNeighbors(
+        nxBgpVrf
+            .getNeighbors()
+            .entrySet()
+            .stream()
+            .filter(e -> !firstNonNull(e.getValue().getShutdown(), Boolean.FALSE))
+            .filter(
+                e ->
+                    e.getValue().getIpv4UnicastAddressFamily() != null
+                        || e.getValue().getIpv6UnicastAddressFamily() != null)
+            .collect(
+                ImmutableSortedMap.toImmutableSortedMap(
+                    Comparator.naturalOrder(),
+                    Entry::getKey,
+                    e ->
+                        CiscoNxConversions.toBgpNeighbor(
+                            c, v, e.getKey(), nxBgpVrf, e.getValue(), _w))));
 
     return newBgpProcess;
   }
