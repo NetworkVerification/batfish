@@ -3,6 +3,8 @@ package org.batfish.representation.cisco.nx;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import javax.annotation.Nullable;
 
 /**
@@ -25,6 +27,7 @@ public class CiscoNxBgpVrfNeighborConfiguration implements Serializable {
 
   public CiscoNxBgpVrfNeighborConfiguration() {
     _addressFamilies = new HashMap<>();
+    _inheritPeerPolicies = new TreeMap<>();
   }
 
   public CiscoNxBgpVrfNeighborAddressFamilyConfiguration getOrCreateAddressFamily(String af) {
@@ -58,6 +61,29 @@ public class CiscoNxBgpVrfNeighborConfiguration implements Serializable {
 
   public void setEbgpMultihopTtl(@Nullable Integer ttl) {
     _ebgpMultihopTtl = ttl;
+  }
+
+  @Nullable
+  public CiscoNxBgpVrfNeighborConfiguration getInheritPeer() {
+    return _inheritPeer;
+  }
+
+  public void setInheritPeer(@Nullable CiscoNxBgpVrfNeighborConfiguration parent) {
+    _inheritPeer = parent;
+  }
+
+  public void setInheritPeerPolicy(
+      int seq, @Nullable CiscoNxBgpVrfNeighborAddressFamilyConfiguration policy) {
+    _inheritPeerPolicies.put(seq, policy);
+  }
+
+  @Nullable
+  public CiscoNxBgpVrfNeighborConfiguration getInheritPeerSession() {
+    return _inheritPeerSession;
+  }
+
+  public void setInheritPeerSession(@Nullable CiscoNxBgpVrfNeighborConfiguration parent) {
+    _inheritPeerSession = parent;
   }
 
   @Nullable
@@ -108,6 +134,10 @@ public class CiscoNxBgpVrfNeighborConfiguration implements Serializable {
   private final Map<String, CiscoNxBgpVrfNeighborAddressFamilyConfiguration> _addressFamilies;
   @Nullable private String _description;
   @Nullable private Integer _ebgpMultihopTtl;
+  @Nullable private CiscoNxBgpVrfNeighborConfiguration _inheritPeer;
+  private final SortedMap<Integer, CiscoNxBgpVrfNeighborAddressFamilyConfiguration>
+      _inheritPeerPolicies;
+  @Nullable private CiscoNxBgpVrfNeighborConfiguration _inheritPeerSession;
   @Nullable private Long _localAs;
   @Nullable private Long _remoteAs;
   @Nullable private String _remoteAsRouteMap;

@@ -5,6 +5,11 @@ import static org.batfish.datamodel.ConfigurationFormat.ARISTA;
 import static org.batfish.datamodel.ConfigurationFormat.CISCO_ASA;
 import static org.batfish.datamodel.ConfigurationFormat.CISCO_IOS;
 import static org.batfish.datamodel.ConfigurationFormat.CISCO_NX;
+import static org.batfish.representation.cisco.CiscoStructureType.BGP_TEMPLATE_PEER;
+import static org.batfish.representation.cisco.CiscoStructureType.BGP_TEMPLATE_PEER_POLICY;
+import static org.batfish.representation.cisco.CiscoStructureType.BGP_TEMPLATE_PEER_SESSION;
+import static org.batfish.representation.cisco.CiscoStructureUsage.BGP_INHERITED_PEER;
+import static org.batfish.representation.cisco.CiscoStructureUsage.BGP_INHERITED_SESSION;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -465,18 +470,23 @@ import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_allowas_inContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_as_overrideContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_default_originateContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_filter_listContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_inheritContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_prefix_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_send_communityContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_unsuppress_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_descriptionContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_ebgp_multihopContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_inheritContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_local_asContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_remote_asContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_remove_private_asContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_shutdownContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_neighborContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_router_idContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_template_peerContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_template_peer_policyContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_template_peer_sessionContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_v_local_asContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_vrfContext;
 import org.batfish.grammar.cisco.CiscoParser.Redistribute_aggregate_bgp_tailContext;
@@ -2269,13 +2279,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void enterRbnx_n_address_family(Rbnx_n_address_familyContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     String familyStr = ctx.first.getText() + '-' + ctx.second.getText();
     _currentBgpNxVrfNeighborAddressFamily =
         _currentBgpNxVrfNeighbor.getOrCreateAddressFamily(familyStr);
@@ -2313,13 +2316,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void exitRbnx_n_af_allowas_in(Rbnx_n_af_allowas_inContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     if (ctx.num != null) {
       todo(ctx, F_ALLOWAS_IN_NUMBER);
     }
@@ -2328,13 +2324,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void exitRbnx_n_af_as_override(Rbnx_n_af_as_overrideContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     _currentBgpNxVrfNeighborAddressFamily.setAsOverride(true);
   }
 
@@ -2364,6 +2353,19 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
                 ? CiscoStructureUsage.BGP_INBOUND_FILTER_LIST
                 : CiscoStructureUsage.BGP_OUTBOUND_FILTER_LIST);
     _configuration.referenceStructure(type, filterList, usage, ctx.getStart().getLine());
+  }
+
+  @Override
+  public void exitRbnx_n_af_inherit(Rbnx_n_af_inheritContext ctx) {
+    String name = ctx.template.getText();
+    int sequence = toInteger(ctx.seq);
+    _currentBgpNxVrfNeighbor.setInheritPeerPolicy(
+        sequence, _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeerPolicy(name));
+    _configuration.referenceStructure(
+        CiscoStructureType.BGP_TEMPLATE_PEER_POLICY,
+        name,
+        CiscoStructureUsage.BGP_INHERITED_PEER_POLICY,
+        ctx.getStart().getLine());
   }
 
   @Override
@@ -2420,38 +2422,33 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void exitRbnx_n_ebgp_multihop(Rbnx_n_ebgp_multihopContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     _currentBgpNxVrfNeighbor.setEbgpMultihopTtl(toInteger(ctx.ebgp_ttl));
+  }
+
+  @Override
+  public void exitRbnx_n_inherit(Rbnx_n_inheritContext ctx) {
+    String name = ctx.peer.getText();
+    if (ctx.PEER() != null) {
+      _currentBgpNxVrfNeighbor.setInheritPeer(
+          _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeer(name));
+      _configuration.referenceStructure(
+          BGP_TEMPLATE_PEER, name, BGP_INHERITED_PEER, ctx.getStart().getLine());
+    } else {
+      _currentBgpNxVrfNeighbor.setInheritPeerSession(
+          _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeerSession(name));
+      _configuration.referenceStructure(
+          BGP_TEMPLATE_PEER_SESSION, name, BGP_INHERITED_SESSION, ctx.getStart().getLine());
+    }
   }
 
   @Override
   public void exitRbnx_n_local_as(Rbnx_n_local_asContext ctx) {
     long asn = toAsNum(ctx.bgp_asn());
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     _currentBgpNxVrfNeighbor.setLocalAs(asn);
   }
 
   @Override
   public void exitRbnx_n_remote_as(Rbnx_n_remote_asContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     long asn = toAsNum(ctx.bgp_asn());
     _currentBgpNxVrfNeighbor.setRemoteAs(asn);
   }
@@ -2467,13 +2464,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void exitRbnx_n_shutdown(Rbnx_n_shutdownContext ctx) {
-    if (_currentBgpNxVrfNeighbor == null) {
-      _w.redFlag(
-          String.format(
-              "Unable to process [%s], likely because template peer support is missing",
-              ctx.getText().trim()));
-      return;
-    }
     _currentBgpNxVrfNeighbor.setShutdown(true);
   }
 
@@ -2481,6 +2471,45 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   public void exitRbnx_router_id(Rbnx_router_idContext ctx) {
     Ip ip = toIp(ctx.IP_ADDRESS());
     _currentBgpNxVrfConfiguration.setRouterId(ip);
+  }
+
+  @Override
+  public void enterRbnx_template_peer(Rbnx_template_peerContext ctx) {
+    String name = ctx.peer.getText();
+    _currentBgpNxVrfNeighbor =
+        _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeer(name);
+    _configuration.defineStructure(BGP_TEMPLATE_PEER, name, ctx.getStart().getLine());
+  }
+
+  @Override
+  public void exitRbnx_template_peer(Rbnx_template_peerContext ctx) {
+    _currentBgpNxVrfNeighbor = null;
+  }
+
+  @Override
+  public void enterRbnx_template_peer_policy(Rbnx_template_peer_policyContext ctx) {
+    String name = ctx.policy.getText();
+    _currentBgpNxVrfNeighborAddressFamily =
+        _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeerPolicy(name);
+    _configuration.defineStructure(BGP_TEMPLATE_PEER_POLICY, name, ctx.getStart().getLine());
+  }
+
+  @Override
+  public void exitRbnx_template_peer_policy(Rbnx_template_peer_policyContext ctx) {
+    _currentBgpNxVrfNeighborAddressFamily = null;
+  }
+
+  @Override
+  public void enterRbnx_template_peer_session(Rbnx_template_peer_sessionContext ctx) {
+    String name = ctx.session.getText();
+    _currentBgpNxVrfNeighbor =
+        _configuration.getNxBgpGlobalConfiguration().getOrCreateTemplatePeerSession(name);
+    _configuration.defineStructure(BGP_TEMPLATE_PEER_SESSION, name, ctx.getStart().getLine());
+  }
+
+  @Override
+  public void exitRbnx_template_peer_session(Rbnx_template_peer_sessionContext ctx) {
+    _currentBgpNxVrfNeighbor = null;
   }
 
   @Override
