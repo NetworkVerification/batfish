@@ -230,15 +230,16 @@ final class CiscoNxConversions {
 
     @Nullable
     CiscoNxBgpVrfNeighborAddressFamilyConfiguration naf4 = neighbor.getIpv4UnicastAddressFamily();
+    @Nullable CiscoNxBgpVrfAddressFamilyConfiguration af4 = vrfConfig.getIpv4UnicastAddressFamily();
     if (naf4 != null) {
-      newNeighbor.setAdvertiseInactive(!firstNonNull(naf4.getSuppressInactive(), Boolean.FALSE));
+      newNeighbor.setAdvertiseInactive(
+          !firstNonNull(
+              naf4.getSuppressInactive(),
+              af4 != null ? af4.getClientToClientReflection() : Boolean.FALSE));
       newNeighbor.setAllowLocalAsIn(firstNonNull(naf4.getAllowAsIn(), Boolean.FALSE));
       newNeighbor.setSendCommunity(firstNonNull(naf4.getSendCommunityStandard(), Boolean.FALSE));
-    }
-    @Nullable CiscoNxBgpVrfAddressFamilyConfiguration af4 = vrfConfig.getIpv4UnicastAddressFamily();
-    if (af4 != null) {
       newNeighbor.setRouteReflectorClient(
-          vrfConfig.getIpv4UnicastAddressFamily().getClientToClientReflection());
+          firstNonNull(naf4.getRouteReflectorClient(), Boolean.FALSE));
     }
 
     return newNeighbor;

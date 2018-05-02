@@ -32,6 +32,15 @@ public class CiscoNxBgpVrfNeighborAddressFamilyConfiguration implements Serializ
     _asOverride = asOverride;
   }
 
+  public void setRouteReflectorClient(@Nullable Boolean routeReflectorClient) {
+    _routeReflectorClient = routeReflectorClient;
+  }
+
+  @Nullable
+  public Boolean getRouteReflectorClient() {
+    return _routeReflectorClient;
+  }
+
   public void setSendCommunityExtended(@Nullable Boolean sendCommunityExtended) {
     _sendCommunityExtended = sendCommunityExtended;
   }
@@ -61,6 +70,7 @@ public class CiscoNxBgpVrfNeighborAddressFamilyConfiguration implements Serializ
 
   private @Nullable Boolean _allowAsIn;
   private @Nullable Boolean _asOverride;
+  private @Nullable Boolean _routeReflectorClient;
   private @Nullable Boolean _sendCommunityExtended;
   private @Nullable Boolean _sendCommunityStandard;
   private @Nullable Boolean _suppressInactive;

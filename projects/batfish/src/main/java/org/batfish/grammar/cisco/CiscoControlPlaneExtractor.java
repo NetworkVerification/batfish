@@ -474,6 +474,7 @@ import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_filter_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_inheritContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_prefix_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_mapContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_reflector_clientContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_send_communityContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_suppress_inactiveContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_unsuppress_mapContext;
@@ -2402,11 +2403,16 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   }
 
   @Override
+  public void exitRbnx_n_af_route_reflector_client(Rbnx_n_af_route_reflector_clientContext ctx) {
+    _currentBgpNxVrfNeighborAddressFamily.setRouteReflectorClient(true);
+  }
+
+  @Override
   public void exitRbnx_n_af_send_community(Rbnx_n_af_send_communityContext ctx) {
     if (ctx.BOTH() != null || ctx.EXTENDED() != null) {
       _currentBgpNxVrfNeighborAddressFamily.setSendCommunityExtended(true);
     }
-    if (ctx.BOTH() != null || ctx.STANDARD() != null) {
+    if (ctx.BOTH() != null || ctx.STANDARD() != null || ctx.EXTENDED() == null) {
       _currentBgpNxVrfNeighborAddressFamily.setSendCommunityStandard(true);
     }
   }
