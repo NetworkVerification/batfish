@@ -110,7 +110,6 @@ import org.batfish.datamodel.routing_policy.expr.LiteralOrigin;
 import org.batfish.datamodel.routing_policy.expr.MatchPrefix6Set;
 import org.batfish.datamodel.routing_policy.expr.MatchPrefixSet;
 import org.batfish.datamodel.routing_policy.expr.MatchProtocol;
-import org.batfish.datamodel.routing_policy.expr.NamedPrefixSet;
 import org.batfish.datamodel.routing_policy.expr.Not;
 import org.batfish.datamodel.routing_policy.expr.RouteIsClassful;
 import org.batfish.datamodel.routing_policy.expr.SelfNextHop;
@@ -1321,11 +1320,16 @@ public final class CiscoConfiguration extends VendorConfiguration {
     newBgpProcess.setMultipathEquivalentAsPathMatchMode(
         nxBgpVrf.getBestpathAsPathMultipathRelax() ? PATH_LENGTH : EXACT_PATH);
 
-    // Batfish seems to only track the IPv4 properties for multipath ebgp/ibgp.
+    // Process vrf-level address family configuration, such as export policy.
     CiscoNxBgpVrfAddressFamilyConfiguration ipv4af = nxBgpVrf.getIpv4UnicastAddressFamily();
     if (ipv4af != null) {
+      // Batfish seems to only track the IPv4 properties for multipath ebgp/ibgp.
       newBgpProcess.setMultipathEbgp(ipv4af.getMaximumPathsEbgp() > 1);
       newBgpProcess.setMultipathIbgp(ipv4af.getMaximumPathsIbgp() > 1);
+
+      String bgpCommonExportPolicyName = "~BGP_COMMON_EXPORT_POLICY:" + vrfName + "~";
+      RoutingPolicy bgpCommonExportPolicy = new RoutingPolicy(bgpCommonExportPolicyName, c);
+      c.getRoutingPolicies().put(bgpCommonExportPolicy.getName(), bgpCommonExportPolicy);
     }
 
     // This is ugly logic to handle the fact that BgpNeighbor does not currently support
@@ -1526,43 +1530,23 @@ public final class CiscoConfiguration extends VendorConfiguration {
      */
     String bgpCommonExportPolicyName = "~BGP_COMMON_EXPORT_POLICY:" + vrfName + "~";
     RoutingPolicy bgpCommonExportPolicy = new RoutingPolicy(bgpCommonExportPolicyName, c);
-    c.getRoutingPolicies().put(bgpCommonExportPolicyName, bgpCommonExportPolicy);
+    c.getRoutingPolicies().put(bgpCommonExportPolicy.getName(), bgpCommonExportPolicy);
     List<Statement> bgpCommonExportStatements = bgpCommonExportPolicy.getStatements();
 
     // create policy for denying suppressed summary-only networks
     if (summaryOnlyNetworks.size() > 0) {
-      If suppressSummaryOnly = new If();
+      If suppressSummaryOnly =
+          CiscoConversions.suppressLongerNetworksForSummaryOnlyNetworks(
+              c, vrfName, summaryOnlyNetworks.stream().map(BgpAggregateIpv4Network::getPrefix));
       bgpCommonExportStatements.add(suppressSummaryOnly);
-      suppressSummaryOnly.setComment(
-          "Suppress summarized of summary-only aggregate-address networks");
-      String matchSuppressedSummaryOnlyRoutesName =
-          "~MATCH_SUPPRESSED_SUMMARY_ONLY:" + vrfName + "~";
-      RouteFilterList matchSuppressedSummaryOnlyRoutes =
-          new RouteFilterList(matchSuppressedSummaryOnlyRoutesName);
-      c.getRouteFilterLists()
-          .put(matchSuppressedSummaryOnlyRoutesName, matchSuppressedSummaryOnlyRoutes);
-      for (BgpAggregateIpv4Network summaryOnlyNetwork : summaryOnlyNetworks) {
-        Prefix prefix = summaryOnlyNetwork.getPrefix();
-        int prefixLength = prefix.getPrefixLength();
-        RouteFilterLine line =
-            new RouteFilterLine(
-                LineAction.ACCEPT,
-                prefix,
-                new SubRange(prefixLength + 1, Prefix.MAX_PREFIX_LENGTH));
-        matchSuppressedSummaryOnlyRoutes.addLine(line);
-      }
-      suppressSummaryOnly.setGuard(
-          new MatchPrefixSet(
-              new DestinationNetwork(), new NamedPrefixSet(matchSuppressedSummaryOnlyRoutesName)));
-      suppressSummaryOnly.getTrueStatements().add(Statements.ReturnFalse.toStaticStatement());
     }
 
     If preFilter = new If();
     bgpCommonExportStatements.add(preFilter);
-    bgpCommonExportStatements.add(Statements.ReturnFalse.toStaticStatement());
     Disjunction preFilterConditions = new Disjunction();
     preFilter.setGuard(preFilterConditions);
     preFilter.getTrueStatements().add(Statements.ReturnTrue.toStaticStatement());
+    preFilter.getFalseStatements().add(Statements.ReturnFalse.toStaticStatement());
 
     preFilterConditions.getDisjuncts().addAll(attributeMapPrefilters);
 
@@ -1894,7 +1878,7 @@ public final class CiscoConfiguration extends VendorConfiguration {
       peerExportConditional.getFalseStatements().add(Statements.ExitReject.toStaticStatement());
       Disjunction localOrCommonOrigination = new Disjunction();
       peerExportConditions.getConjuncts().add(localOrCommonOrigination);
-      localOrCommonOrigination.getDisjuncts().add(new CallExpr(bgpCommonExportPolicyName));
+      localOrCommonOrigination.getDisjuncts().add(new CallExpr(bgpCommonExportPolicy.getName()));
       String outboundRouteMapName = lpg.getOutboundRouteMap();
       if (outboundRouteMapName != null) {
         int outboundRouteMapLine = lpg.getOutboundRouteMapLine();
