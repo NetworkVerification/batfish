@@ -60,7 +60,6 @@ rbnx_af_inner
     | rbnx_af_client_to_client
     | rbnx_af_dampen_igp_metric
     | rbnx_af_dampening
-    | rbnx_af_default
     | rbnx_af_default_information
     | rbnx_af_default_metric
     | rbnx_af_distance
@@ -124,11 +123,6 @@ rbnx_af_dampening
         half_life = DEC start_reuse = DEC start_suppress = DEC max_suppress = DEC
         | ROUTE_MAP mapname = variable
     ) NEWLINE
-;
-
-rbnx_af_default
-:
-    DEFAULT SUPPRESS_INACTIVE NEWLINE
 ;
 
 rbnx_af_default_information

@@ -231,6 +231,7 @@ final class CiscoNxConversions {
     @Nullable
     CiscoNxBgpVrfNeighborAddressFamilyConfiguration naf4 = neighbor.getIpv4UnicastAddressFamily();
     if (naf4 != null) {
+      newNeighbor.setAdvertiseInactive(!firstNonNull(naf4.getSuppressInactive(), Boolean.FALSE));
       newNeighbor.setAllowLocalAsIn(firstNonNull(naf4.getAllowAsIn(), Boolean.FALSE));
       newNeighbor.setSendCommunity(firstNonNull(naf4.getSendCommunityStandard(), Boolean.FALSE));
     }

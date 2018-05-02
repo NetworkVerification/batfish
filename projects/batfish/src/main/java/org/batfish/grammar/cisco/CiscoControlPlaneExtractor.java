@@ -456,6 +456,7 @@ import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_redistribute_lispContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_redistribute_ospfContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_redistribute_ripContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_redistribute_staticContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_suppress_inactiveContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_af_table_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_bestpathContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_cluster_idContext;
@@ -474,6 +475,7 @@ import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_inheritContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_prefix_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_send_communityContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_suppress_inactiveContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_unsuppress_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_descriptionContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_ebgp_multihopContext;
@@ -2177,6 +2179,11 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   }
 
   @Override
+  public void exitRbnx_af_suppress_inactive(Rbnx_af_suppress_inactiveContext ctx) {
+    _currentBgpNxVrfAddressFamily.setSuppressInactive(true);
+  }
+
+  @Override
   public void exitRbnx_af_table_map(Rbnx_af_table_mapContext ctx) {
     String name = ctx.mapname.getText();
     _configuration.referenceStructure(
@@ -2402,6 +2409,11 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
     if (ctx.BOTH() != null || ctx.STANDARD() != null) {
       _currentBgpNxVrfNeighborAddressFamily.setSendCommunityStandard(true);
     }
+  }
+
+  @Override
+  public void exitRbnx_n_af_suppress_inactive(Rbnx_n_af_suppress_inactiveContext ctx) {
+    _currentBgpNxVrfNeighborAddressFamily.setSuppressInactive(true);
   }
 
   @Override

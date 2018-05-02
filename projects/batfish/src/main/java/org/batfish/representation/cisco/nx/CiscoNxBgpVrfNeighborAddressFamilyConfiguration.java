@@ -50,8 +50,18 @@ public class CiscoNxBgpVrfNeighborAddressFamilyConfiguration implements Serializ
     return _sendCommunityStandard;
   }
 
+  public void setSuppressInactive(@Nullable Boolean suppressInactive) {
+    _suppressInactive = suppressInactive;
+  }
+
+  @Nullable
+  public Boolean getSuppressInactive() {
+    return _suppressInactive;
+  }
+
   private @Nullable Boolean _allowAsIn;
   private @Nullable Boolean _asOverride;
   private @Nullable Boolean _sendCommunityExtended;
   private @Nullable Boolean _sendCommunityStandard;
+  private @Nullable Boolean _suppressInactive;
 }

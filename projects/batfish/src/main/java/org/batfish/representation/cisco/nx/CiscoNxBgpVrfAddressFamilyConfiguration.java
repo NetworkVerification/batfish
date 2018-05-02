@@ -102,6 +102,15 @@ public class CiscoNxBgpVrfAddressFamilyConfiguration implements Serializable {
     this._maximumPathsIbgp = maximumPathsIbgp;
   }
 
+  public void setSuppressInactive(@Nullable Boolean suppressInactive) {
+    _suppressInactive = suppressInactive;
+  }
+
+  @Nullable
+  public Boolean getSuppressInactive() {
+    return _suppressInactive;
+  }
+
   private boolean _clientToClientReflection;
   @Nullable private Long _defaultMetric;
   private boolean _defaultOriginate;
@@ -112,4 +121,5 @@ public class CiscoNxBgpVrfAddressFamilyConfiguration implements Serializable {
   private Map<Prefix6, String> _ipv6Networks;
   private int _maximumPathsEbgp;
   private int _maximumPathsIbgp;
+  private @Nullable Boolean _suppressInactive;
 }
