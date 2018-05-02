@@ -104,57 +104,73 @@ final class CiscoNxConversions {
     return lowestIp.get();
   }
 
-  private static boolean isActive(CiscoNxBgpVrfNeighborConfiguration neighbor) {
-    return !firstNonNull(neighbor.getShutdown(), Boolean.FALSE)
-        && (neighbor.getIpv4UnicastAddressFamily() != null
-            || neighbor.getIpv6UnicastAddressFamily() != null);
+  private static boolean isActive(
+      String name, CiscoNxBgpVrfNeighborConfiguration neighbor, Warnings w) {
+    // Shutdown
+    if (firstNonNull(neighbor.getShutdown(), Boolean.FALSE)) {
+      return false;
+    }
+
+    // No active address family that we support.
+    if (neighbor.getIpv4UnicastAddressFamily() == null
+        && neighbor.getIpv6UnicastAddressFamily() == null) {
+      w.redFlag("No supported address-family configured for " + name);
+      return false;
+    }
+
+    // No remote AS set.
+    if (neighbor.getRemoteAs() == null) {
+      w.redFlag("No remote-as configured for " + name);
+    }
+
+    return true;
   }
 
   @Nonnull
   static Map<Ip, BgpNeighbor> getNeighbors(
       Configuration c,
-      Vrf v,
+      Vrf vrf,
       CiscoNxBgpGlobalConfiguration bgpConfig,
       CiscoNxBgpVrfConfiguration nxBgpVrf,
-      Warnings w) {
+      Warnings warnings) {
     return nxBgpVrf
         .getNeighbors()
         .entrySet()
         .stream()
-        .filter(e -> isActive(e.getValue()))
+        .filter(e -> isActive(getTextDesc(e.getKey(), vrf), e.getValue(), warnings))
         .collect(
             ImmutableMap.toImmutableMap(
                 Entry::getKey,
                 e ->
                     CiscoNxConversions.toBgpNeighbor(
                         c,
-                        v,
+                        vrf,
                         new Prefix(e.getKey(), Prefix.MAX_PREFIX_LENGTH),
                         bgpConfig,
                         nxBgpVrf,
                         e.getValue(),
                         false,
-                        w)));
+                        warnings)));
   }
 
   @Nonnull
   static Map<Prefix, BgpNeighbor> getPassiveNeighbors(
       Configuration c,
-      Vrf v,
+      Vrf vrf,
       CiscoNxBgpGlobalConfiguration bgpConfig,
       CiscoNxBgpVrfConfiguration nxBgpVrf,
-      Warnings w) {
+      Warnings warnings) {
     return nxBgpVrf
         .getPassiveNeighbors()
         .entrySet()
         .stream()
-        .filter(e -> isActive(e.getValue()))
+        .filter(e -> isActive(getTextDesc(e.getKey(), vrf), e.getValue(), warnings))
         .collect(
             ImmutableMap.toImmutableMap(
                 Entry::getKey,
                 e ->
                     CiscoNxConversions.toBgpNeighbor(
-                        c, v, e.getKey(), bgpConfig, nxBgpVrf, e.getValue(), true, w)));
+                        c, vrf, e.getKey(), bgpConfig, nxBgpVrf, e.getValue(), true, warnings)));
   }
 
   @Nonnull
@@ -166,7 +182,7 @@ final class CiscoNxConversions {
       CiscoNxBgpVrfConfiguration vrfConfig,
       CiscoNxBgpVrfNeighborConfiguration neighbor,
       boolean dynamic,
-      Warnings w) {
+      Warnings warnings) {
     BgpNeighbor newNeighbor = new BgpNeighbor(prefix, c, dynamic);
 
     newNeighbor.setDescription(neighbor.getDescription());
@@ -182,7 +198,7 @@ final class CiscoNxConversions {
     if (neighbor.getLocalAs() != null) {
       long asn = neighbor.getLocalAs();
       if (asn >= (1 << 16)) {
-        w.redFlag(
+        warnings.redFlag(
             String.format(
                 "4-byte AS numbers are not fully supported: vrf %s neighbor %s local-as %d",
                 vrf.getName(), prefix, asn));
@@ -191,7 +207,7 @@ final class CiscoNxConversions {
     } else if (vrfConfig.getLocalAs() != null) {
       long asn = vrfConfig.getLocalAs();
       if (asn >= (1 << 16)) {
-        w.redFlag(
+        warnings.redFlag(
             String.format(
                 "4-byte AS numbers are not fully supported: vrf %s neighbor %s local-as %d",
                 vrf.getName(), prefix, asn));
@@ -202,7 +218,7 @@ final class CiscoNxConversions {
     if (neighbor.getRemoteAs() != null) {
       long asn = neighbor.getRemoteAs();
       if (asn >= (1 << 16)) {
-        w.redFlag(
+        warnings.redFlag(
             String.format(
                 "4-byte AS numbers are not fully supported: vrf %s neighbor %s remote-as %d",
                 vrf.getName(), prefix, asn));
@@ -225,6 +241,14 @@ final class CiscoNxConversions {
     }
 
     return newNeighbor;
+  }
+
+  private static String getTextDesc(Ip ip, Vrf v) {
+    return String.format("BGP neighbor %s in vrf %s", ip.toString(), v.getName());
+  }
+
+  private static String getTextDesc(Prefix prefix, Vrf v) {
+    return String.format("BGP neighbor %s in vrf %s", prefix.toString(), v.getName());
   }
 
   private CiscoNxConversions() {} // prevent instantiation of utility class.
