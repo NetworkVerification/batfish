@@ -2,7 +2,7 @@ package org.batfish.representation.cisco;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 
-import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableMap;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Map;
@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.annotation.ParametersAreNonnullByDefault;
 import org.batfish.common.Warnings;
 import org.batfish.datamodel.BgpNeighbor;
 import org.batfish.datamodel.Configuration;
@@ -19,6 +20,7 @@ import org.batfish.datamodel.InterfaceAddress;
 import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.Vrf;
+import org.batfish.representation.cisco.nx.CiscoNxBgpGlobalConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfAddressFamilyConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfNeighborAddressFamilyConfiguration;
@@ -28,14 +30,13 @@ import org.batfish.representation.cisco.nx.CiscoNxBgpVrfNeighborConfiguration;
  * A utility class for converting between Cisco NX-OS configurations and the Batfish
  * vendor-independent {@link org.batfish.datamodel}.
  */
+@ParametersAreNonnullByDefault
 final class CiscoNxConversions {
   /** Computes the router ID on Cisco NX-OS. */
   // See CiscoNxosTest#testRouterId for a test that is verifiable using GNS3.
   @Nonnull
   static Ip getNxBgpRouterId(
-      @Nonnull CiscoNxBgpVrfConfiguration vrfConfig,
-      @Nonnull org.batfish.datamodel.Vrf vrf,
-      @Nonnull Warnings w) {
+      CiscoNxBgpVrfConfiguration vrfConfig, org.batfish.datamodel.Vrf vrf, Warnings w) {
     // If Router ID is configured in the VRF-Specific BGP config, it always wins.
     if (vrfConfig.getRouterId() != null) {
       return vrfConfig.getRouterId();
@@ -109,67 +110,74 @@ final class CiscoNxConversions {
             || neighbor.getIpv6UnicastAddressFamily() != null);
   }
 
+  @Nonnull
   static Map<Ip, BgpNeighbor> getNeighbors(
-      Configuration c, Vrf v, CiscoNxBgpVrfConfiguration nxBgpVrf, Warnings w) {
+      Configuration c,
+      Vrf v,
+      CiscoNxBgpGlobalConfiguration bgpConfig,
+      CiscoNxBgpVrfConfiguration nxBgpVrf,
+      Warnings w) {
     return nxBgpVrf
         .getNeighbors()
         .entrySet()
         .stream()
         .filter(e -> isActive(e.getValue()))
         .collect(
-            ImmutableSortedMap.toImmutableSortedMap(
-                Comparator.naturalOrder(),
+            ImmutableMap.toImmutableMap(
                 Entry::getKey,
                 e ->
                     CiscoNxConversions.toBgpNeighbor(
                         c,
                         v,
                         new Prefix(e.getKey(), Prefix.MAX_PREFIX_LENGTH),
+                        bgpConfig,
                         nxBgpVrf,
                         e.getValue(),
                         false,
                         w)));
   }
 
+  @Nonnull
   static Map<Prefix, BgpNeighbor> getPassiveNeighbors(
-      Configuration c, Vrf v, CiscoNxBgpVrfConfiguration nxBgpVrf, Warnings w) {
+      Configuration c,
+      Vrf v,
+      CiscoNxBgpGlobalConfiguration bgpConfig,
+      CiscoNxBgpVrfConfiguration nxBgpVrf,
+      Warnings w) {
     return nxBgpVrf
         .getPassiveNeighbors()
         .entrySet()
         .stream()
         .filter(e -> isActive(e.getValue()))
         .collect(
-            ImmutableSortedMap.toImmutableSortedMap(
-                Comparator.naturalOrder(),
+            ImmutableMap.toImmutableMap(
                 Entry::getKey,
                 e ->
                     CiscoNxConversions.toBgpNeighbor(
-                        c, v, e.getKey(), nxBgpVrf, e.getValue(), true, w)));
+                        c, v, e.getKey(), bgpConfig, nxBgpVrf, e.getValue(), true, w)));
   }
 
   @Nonnull
   private static BgpNeighbor toBgpNeighbor(
-      @Nonnull Configuration c,
-      @Nonnull org.batfish.datamodel.Vrf vrf,
-      @Nonnull Prefix prefix,
-      @Nonnull CiscoNxBgpVrfConfiguration vrfConfig,
-      @Nonnull CiscoNxBgpVrfNeighborConfiguration neighbor,
+      Configuration c,
+      org.batfish.datamodel.Vrf vrf,
+      Prefix prefix,
+      CiscoNxBgpGlobalConfiguration bgpConfig,
+      CiscoNxBgpVrfConfiguration vrfConfig,
+      CiscoNxBgpVrfNeighborConfiguration neighbor,
       boolean dynamic,
-      @Nonnull Warnings w) {
+      Warnings w) {
     BgpNeighbor newNeighbor = new BgpNeighbor(prefix, c, dynamic);
 
     newNeighbor.setDescription(neighbor.getDescription());
-    newNeighbor.setVrf(vrf.getName());
-    if (neighbor.getRemoteAs() != null) {
-      long asn = neighbor.getRemoteAs();
-      if (asn >= (1 << 16)) {
-        w.redFlag(
-            String.format(
-                "4-byte AS numbers are not fully supported: vrf %s neighbor %s remote-as %d",
-                vrf.getName(), prefix, asn));
-      }
-      newNeighbor.setRemoteAs((int) asn);
+
+    if (vrfConfig.getClusterId() != null) {
+      newNeighbor.setClusterId(vrfConfig.getClusterId().asLong());
     }
+
+    newNeighbor.setEbgpMultihop(firstNonNull(neighbor.getEbgpMultihopTtl(), 0) > 1);
+
+    newNeighbor.setEnforceFirstAs(bgpConfig.getEnforceFirstAs());
 
     if (neighbor.getLocalAs() != null) {
       long asn = neighbor.getLocalAs();
@@ -191,11 +199,18 @@ final class CiscoNxConversions {
       newNeighbor.setLocalAs((int) asn);
     }
 
-    if (vrfConfig.getClusterId() != null) {
-      newNeighbor.setClusterId(vrfConfig.getClusterId().asLong());
+    if (neighbor.getRemoteAs() != null) {
+      long asn = neighbor.getRemoteAs();
+      if (asn >= (1 << 16)) {
+        w.redFlag(
+            String.format(
+                "4-byte AS numbers are not fully supported: vrf %s neighbor %s remote-as %d",
+                vrf.getName(), prefix, asn));
+      }
+      newNeighbor.setRemoteAs((int) asn);
     }
 
-    newNeighbor.setEbgpMultihop(firstNonNull(neighbor.getEbgpMultihopTtl(), 0) > 1);
+    newNeighbor.setVrf(vrf.getName());
 
     @Nullable
     CiscoNxBgpVrfNeighborAddressFamilyConfiguration naf4 = neighbor.getIpv4UnicastAddressFamily();

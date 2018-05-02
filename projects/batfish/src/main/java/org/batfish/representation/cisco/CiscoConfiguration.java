@@ -1321,6 +1321,7 @@ public final class CiscoConfiguration extends VendorConfiguration {
     newBgpProcess.setMultipathEquivalentAsPathMatchMode(
         nxBgpVrf.getBestpathAsPathMultipathRelax() ? PATH_LENGTH : EXACT_PATH);
 
+    // Batfish seems to only track the IPv4 properties for multipath ebgp/ibgp.
     CiscoNxBgpVrfAddressFamilyConfiguration ipv4af = nxBgpVrf.getIpv4UnicastAddressFamily();
     if (ipv4af != null) {
       newBgpProcess.setMultipathEbgp(ipv4af.getMaximumPathsEbgp() > 1);
@@ -1331,13 +1332,15 @@ public final class CiscoConfiguration extends VendorConfiguration {
     // separate tracking of active and passive neighbors.
     SortedMap<Prefix, BgpNeighbor> newNeighbors = new TreeMap<>();
     // Process active neighbors first.
-    Map<Ip, BgpNeighbor> activeNeighbors = CiscoNxConversions.getNeighbors(c, v, nxBgpVrf, _w);
+    Map<Ip, BgpNeighbor> activeNeighbors =
+        CiscoNxConversions.getNeighbors(c, v, nxBgpGlobal, nxBgpVrf, _w);
     activeNeighbors.forEach(
         (key, value) -> newNeighbors.put(new Prefix(key, Prefix.MAX_PREFIX_LENGTH), value));
     // Process passive neighbors next. Note that for now, a passive neighbor listening
     // to a /32 will overwrite an active neighbor of the same IP.
+    // TODO(https://github.com/batfish/batfish/issues/1228)
     Map<Prefix, BgpNeighbor> passiveNeighbors =
-        CiscoNxConversions.getPassiveNeighbors(c, v, nxBgpVrf, _w);
+        CiscoNxConversions.getPassiveNeighbors(c, v, nxBgpGlobal, nxBgpVrf, _w);
     newNeighbors.putAll(passiveNeighbors);
 
     newBgpProcess.setNeighbors(ImmutableSortedMap.copyOf(newNeighbors));
