@@ -41,6 +41,15 @@ public class CiscoNxBgpVrfNeighborAddressFamilyConfiguration implements Serializ
     return _nextHopSelf;
   }
 
+  public void setNextHopThirdParty(@Nullable Boolean nextHopThirdParty) {
+    _nextHopThirdParty = nextHopThirdParty;
+  }
+
+  @Nullable
+  public Boolean getNextHopThirdParty() {
+    return _nextHopThirdParty;
+  }
+
   public void setRouteReflectorClient(@Nullable Boolean routeReflectorClient) {
     _routeReflectorClient = routeReflectorClient;
   }
@@ -80,6 +89,7 @@ public class CiscoNxBgpVrfNeighborAddressFamilyConfiguration implements Serializ
   private @Nullable Boolean _allowAsIn;
   private @Nullable Boolean _asOverride;
   private @Nullable Boolean _nextHopSelf;
+  private @Nullable Boolean _nextHopThirdParty;
   private @Nullable Boolean _routeReflectorClient;
   private @Nullable Boolean _sendCommunityExtended;
   private @Nullable Boolean _sendCommunityStandard;

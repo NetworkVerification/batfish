@@ -375,7 +375,7 @@ rbnx_n_af_inner
     | rbnx_n_af_inherit
     | rbnx_n_af_maximum_prefix
     | rbnx_n_af_next_hop_self
-    | rbnx_n_af_next_help_third_party
+    | rbnx_n_af_next_hop_third_party
     | rbnx_n_af_prefix_list
     | rbnx_n_af_route_map
     | rbnx_n_af_route_reflector_client
@@ -451,7 +451,7 @@ rbnx_n_af_next_hop_self
     NEXT_HOP_SELF NEWLINE
 ;
 
-rbnx_n_af_next_help_third_party
+rbnx_n_af_next_hop_third_party
 :
     NEXT_HOP_THIRD_PARTY NEWLINE
 ;

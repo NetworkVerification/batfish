@@ -473,6 +473,7 @@ import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_default_originateContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_filter_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_inheritContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_next_hop_selfContext;
+import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_next_hop_third_partyContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_prefix_listContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_mapContext;
 import org.batfish.grammar.cisco.CiscoParser.Rbnx_n_af_route_reflector_clientContext;
@@ -2379,6 +2380,11 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   @Override
   public void exitRbnx_n_af_next_hop_self(Rbnx_n_af_next_hop_selfContext ctx) {
     _currentBgpNxVrfNeighborAddressFamily.setNextHopSelf(true);
+  }
+
+  @Override
+  public void exitRbnx_n_af_next_hop_third_party(Rbnx_n_af_next_hop_third_partyContext ctx) {
+    _currentBgpNxVrfNeighborAddressFamily.setNextHopThirdParty(true);
   }
 
   @Override
