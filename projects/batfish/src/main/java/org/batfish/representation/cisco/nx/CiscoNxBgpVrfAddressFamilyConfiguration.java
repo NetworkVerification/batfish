@@ -1,11 +1,13 @@
 package org.batfish.representation.cisco.nx;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import javax.annotation.Nullable;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.Prefix6;
+import org.batfish.datamodel.RoutingProtocol;
 
 /**
  * Represents the BGP configuration for a single address family at the VRF level.
@@ -27,6 +29,8 @@ public class CiscoNxBgpVrfAddressFamilyConfiguration implements Serializable {
     _ipv6Networks = new TreeMap<>();
     _maximumPathsEbgp = 1; // multipath disabled by default
     _maximumPathsIbgp = 1; // multipath disabled by default
+    _redistributionPolicies = new HashMap<>();
+    _suppressInactive = false; // inactive routes not suppressed by default
   }
 
   public boolean getClientToClientReflection() {
@@ -102,13 +106,19 @@ public class CiscoNxBgpVrfAddressFamilyConfiguration implements Serializable {
     this._maximumPathsIbgp = maximumPathsIbgp;
   }
 
-  public void setSuppressInactive(@Nullable Boolean suppressInactive) {
-    _suppressInactive = suppressInactive;
+  public void setRedistributionPolicy(
+      RoutingProtocol protocol, String routeMap, @Nullable String sourceTag) {
+    CiscoNxBgpRedistributionPolicy policy = new CiscoNxBgpRedistributionPolicy(routeMap);
+    policy.setSourceTag(sourceTag);
+    _redistributionPolicies.put(protocol, policy);
   }
 
-  @Nullable
-  public Boolean getSuppressInactive() {
+  public boolean getSuppressInactive() {
     return _suppressInactive;
+  }
+
+  public void setSuppressInactive(boolean suppressInactive) {
+    _suppressInactive = suppressInactive;
   }
 
   private boolean _clientToClientReflection;
@@ -117,9 +127,10 @@ public class CiscoNxBgpVrfAddressFamilyConfiguration implements Serializable {
   private int _distanceEbgp;
   private int _distanceIbgp;
   private int _distanceLocal;
-  private Map<Prefix, String> _ipNetworks;
-  private Map<Prefix6, String> _ipv6Networks;
+  private final Map<Prefix, String> _ipNetworks;
+  private final Map<Prefix6, String> _ipv6Networks;
   private int _maximumPathsEbgp;
   private int _maximumPathsIbgp;
-  private @Nullable Boolean _suppressInactive;
+  private final Map<RoutingProtocol, CiscoNxBgpRedistributionPolicy> _redistributionPolicies;
+  private boolean _suppressInactive;
 }

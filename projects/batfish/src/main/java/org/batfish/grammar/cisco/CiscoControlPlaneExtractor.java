@@ -2119,26 +2119,31 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_CONNECTED_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.CONNECTED, name, null);
   }
 
   @Override
   public void exitRbnx_af_redistribute_eigrp(Rbnx_af_redistribute_eigrpContext ctx) {
     String name = ctx.mapname.getText();
+    String sourceTag = ctx.source_tag.getText();
     _configuration.referenceStructure(
         CiscoStructureType.ROUTE_MAP,
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_EIGRP_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.EIGRP, name, sourceTag);
   }
 
   @Override
   public void exitRbnx_af_redistribute_isis(Rbnx_af_redistribute_isisContext ctx) {
     String name = ctx.mapname.getText();
+    String sourceTag = ctx.source_tag.getText();
     _configuration.referenceStructure(
         CiscoStructureType.ROUTE_MAP,
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_ISIS_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.ISIS, name, sourceTag);
   }
 
   @Override
@@ -2149,26 +2154,31 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_LISP_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.LISP, name, null);
   }
 
   @Override
   public void exitRbnx_af_redistribute_ospf(Rbnx_af_redistribute_ospfContext ctx) {
     String name = ctx.mapname.getText();
+    String sourceTag = ctx.source_tag.getText();
     _configuration.referenceStructure(
         CiscoStructureType.ROUTE_MAP,
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_OSPF_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.OSPF, name, sourceTag);
   }
 
   @Override
   public void exitRbnx_af_redistribute_rip(Rbnx_af_redistribute_ripContext ctx) {
     String name = ctx.mapname.getText();
+    String sourceTag = ctx.source_tag.getText();
     _configuration.referenceStructure(
         CiscoStructureType.ROUTE_MAP,
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_RIP_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.RIP, name, sourceTag);
   }
 
   @Override
@@ -2179,6 +2189,7 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
         name,
         CiscoStructureUsage.BGP_REDISTRIBUTE_STATIC_MAP,
         ctx.getStart().getLine());
+    _currentBgpNxVrfAddressFamily.setRedistributionPolicy(RoutingProtocol.STATIC, name, null);
   }
 
   @Override

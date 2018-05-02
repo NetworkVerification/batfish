@@ -234,8 +234,7 @@ final class CiscoNxConversions {
     if (naf4 != null) {
       newNeighbor.setAdvertiseInactive(
           !firstNonNull(
-              naf4.getSuppressInactive(),
-              af4 != null ? af4.getClientToClientReflection() : Boolean.FALSE));
+              naf4.getSuppressInactive(), af4 != null ? af4.getSuppressInactive() : Boolean.FALSE));
       newNeighbor.setAllowLocalAsIn(firstNonNull(naf4.getAllowAsIn(), Boolean.FALSE));
       newNeighbor.setSendCommunity(firstNonNull(naf4.getSendCommunityStandard(), Boolean.FALSE));
       newNeighbor.setRouteReflectorClient(
