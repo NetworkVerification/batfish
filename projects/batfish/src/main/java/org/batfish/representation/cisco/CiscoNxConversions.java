@@ -2,6 +2,7 @@ package org.batfish.representation.cisco;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
 
+import com.google.common.collect.ImmutableSortedMap;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.InterfaceAddress;
 import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.Prefix;
+import org.batfish.datamodel.Vrf;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfAddressFamilyConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfConfiguration;
 import org.batfish.representation.cisco.nx.CiscoNxBgpVrfNeighborAddressFamilyConfiguration;
@@ -101,16 +103,60 @@ final class CiscoNxConversions {
     return lowestIp.get();
   }
 
+  private static boolean isActive(CiscoNxBgpVrfNeighborConfiguration neighbor) {
+    return !firstNonNull(neighbor.getShutdown(), Boolean.FALSE)
+        && (neighbor.getIpv4UnicastAddressFamily() != null
+            || neighbor.getIpv6UnicastAddressFamily() != null);
+  }
+
+  static Map<Ip, BgpNeighbor> getNeighbors(
+      Configuration c, Vrf v, CiscoNxBgpVrfConfiguration nxBgpVrf, Warnings w) {
+    return nxBgpVrf
+        .getNeighbors()
+        .entrySet()
+        .stream()
+        .filter(e -> isActive(e.getValue()))
+        .collect(
+            ImmutableSortedMap.toImmutableSortedMap(
+                Comparator.naturalOrder(),
+                Entry::getKey,
+                e ->
+                    CiscoNxConversions.toBgpNeighbor(
+                        c,
+                        v,
+                        new Prefix(e.getKey(), Prefix.MAX_PREFIX_LENGTH),
+                        nxBgpVrf,
+                        e.getValue(),
+                        false,
+                        w)));
+  }
+
+  static Map<Prefix, BgpNeighbor> getPassiveNeighbors(
+      Configuration c, Vrf v, CiscoNxBgpVrfConfiguration nxBgpVrf, Warnings w) {
+    return nxBgpVrf
+        .getPassiveNeighbors()
+        .entrySet()
+        .stream()
+        .filter(e -> isActive(e.getValue()))
+        .collect(
+            ImmutableSortedMap.toImmutableSortedMap(
+                Comparator.naturalOrder(),
+                Entry::getKey,
+                e ->
+                    CiscoNxConversions.toBgpNeighbor(
+                        c, v, e.getKey(), nxBgpVrf, e.getValue(), true, w)));
+  }
+
   @Nonnull
-  static BgpNeighbor toBgpNeighbor(
+  private static BgpNeighbor toBgpNeighbor(
       @Nonnull Configuration c,
       @Nonnull org.batfish.datamodel.Vrf vrf,
       @Nonnull Prefix prefix,
       @Nonnull CiscoNxBgpVrfConfiguration vrfConfig,
       @Nonnull CiscoNxBgpVrfNeighborConfiguration neighbor,
+      boolean dynamic,
       @Nonnull Warnings w) {
-    BgpNeighbor newNeighbor =
-        new BgpNeighbor(prefix, c, prefix.getPrefixLength() < Prefix.MAX_PREFIX_LENGTH);
+    BgpNeighbor newNeighbor = new BgpNeighbor(prefix, c, dynamic);
 
     newNeighbor.setDescription(neighbor.getDescription());
     newNeighbor.setVrf(vrf.getName());

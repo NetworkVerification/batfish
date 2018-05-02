@@ -23,6 +23,7 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
     this._logNeighborChanges = false; // disabled by default
     this._maxAsLimit = null; // default no limit
     this._neighbors = new TreeMap<>(); // no neighbors by default.
+    this._passiveNeighbors = new TreeMap<>(); // no neighbors by default.
     this._routerId = null; // use device's default router id unless overridden.
   }
 
@@ -40,12 +41,20 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
     return _addressFamilies.computeIfAbsent(af, a -> new CiscoNxBgpVrfAddressFamilyConfiguration());
   }
 
-  public CiscoNxBgpVrfNeighborConfiguration getOrCreateNeighbor(Prefix prefix) {
-    return _neighbors.computeIfAbsent(prefix, p -> new CiscoNxBgpVrfNeighborConfiguration());
+  public CiscoNxBgpVrfNeighborConfiguration getOrCreateNeighbor(Ip address) {
+    return _neighbors.computeIfAbsent(address, a -> new CiscoNxBgpVrfNeighborConfiguration());
   }
 
-  public Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> getNeighbors() {
+  public CiscoNxBgpVrfNeighborConfiguration getOrCreatePassiveNeighbor(Prefix prefix) {
+    return _passiveNeighbors.computeIfAbsent(prefix, p -> new CiscoNxBgpVrfNeighborConfiguration());
+  }
+
+  public Map<Ip, CiscoNxBgpVrfNeighborConfiguration> getNeighbors() {
     return Collections.unmodifiableMap(_neighbors);
+  }
+
+  public Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> getPassiveNeighbors() {
+    return Collections.unmodifiableMap(_passiveNeighbors);
   }
 
   public boolean getBestpathAlwaysCompareMed() {
@@ -160,6 +169,7 @@ public final class CiscoNxBgpVrfConfiguration implements Serializable {
   @Nullable private Long _localAs;
   private boolean _logNeighborChanges;
   @Nullable private Integer _maxAsLimit;
-  private final Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> _neighbors;
+  private final Map<Ip, CiscoNxBgpVrfNeighborConfiguration> _neighbors;
+  private final Map<Prefix, CiscoNxBgpVrfNeighborConfiguration> _passiveNeighbors;
   @Nullable private Ip _routerId;
 }

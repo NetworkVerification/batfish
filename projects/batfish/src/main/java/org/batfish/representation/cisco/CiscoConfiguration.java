@@ -1,6 +1,5 @@
 package org.batfish.representation.cisco;
 
-import static com.google.common.base.MoreObjects.firstNonNull;
 import static org.batfish.common.util.CommonUtil.toImmutableMap;
 import static org.batfish.datamodel.MultipathEquivalentAsPathMatchMode.EXACT_PATH;
 import static org.batfish.datamodel.MultipathEquivalentAsPathMatchMode.PATH_LENGTH;
@@ -1328,23 +1327,20 @@ public final class CiscoConfiguration extends VendorConfiguration {
       newBgpProcess.setMultipathIbgp(ipv4af.getMaximumPathsIbgp() > 1);
     }
 
-    newBgpProcess.setNeighbors(
-        nxBgpVrf
-            .getNeighbors()
-            .entrySet()
-            .stream()
-            .filter(e -> !firstNonNull(e.getValue().getShutdown(), Boolean.FALSE))
-            .filter(
-                e ->
-                    e.getValue().getIpv4UnicastAddressFamily() != null
-                        || e.getValue().getIpv6UnicastAddressFamily() != null)
-            .collect(
-                ImmutableSortedMap.toImmutableSortedMap(
-                    Comparator.naturalOrder(),
-                    Entry::getKey,
-                    e ->
-                        CiscoNxConversions.toBgpNeighbor(
-                            c, v, e.getKey(), nxBgpVrf, e.getValue(), _w))));
+    // This is ugly logic to handle the fact that BgpNeighbor does not currently support
+    // separate tracking of active and passive neighbors.
+    SortedMap<Prefix, BgpNeighbor> newNeighbors = new TreeMap<>();
+    // Process active neighbors first.
+    Map<Ip, BgpNeighbor> activeNeighbors = CiscoNxConversions.getNeighbors(c, v, nxBgpVrf, _w);
+    activeNeighbors.forEach(
+        (key, value) -> newNeighbors.put(new Prefix(key, Prefix.MAX_PREFIX_LENGTH), value));
+    // Process passive neighbors next. Note that for now, a passive neighbor listening
+    // to a /32 will overwrite an active neighbor of the same IP.
+    Map<Prefix, BgpNeighbor> passiveNeighbors =
+        CiscoNxConversions.getPassiveNeighbors(c, v, nxBgpVrf, _w);
+    newNeighbors.putAll(passiveNeighbors);
+
+    newBgpProcess.setNeighbors(ImmutableSortedMap.copyOf(newNeighbors));
 
     return newBgpProcess;
   }

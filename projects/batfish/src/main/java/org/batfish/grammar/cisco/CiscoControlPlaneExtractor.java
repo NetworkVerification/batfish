@@ -2244,17 +2244,16 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void enterRbnx_neighbor(Rbnx_neighborContext ctx) {
-    Prefix address;
     if (ctx.ip != null) {
       Ip ip = toIp(ctx.ip);
-      address = new Prefix(ip, Prefix.MAX_PREFIX_LENGTH);
+      _currentBgpNxVrfNeighbor = _currentBgpNxVrfConfiguration.getOrCreateNeighbor(ip);
     } else if (ctx.prefix != null) {
-      address = Prefix.parse(ctx.prefix.getText());
+      Prefix prefix = Prefix.parse(ctx.prefix.getText());
+      _currentBgpNxVrfNeighbor = _currentBgpNxVrfConfiguration.getOrCreatePassiveNeighbor(prefix);
     } else {
       throw new BatfishException(
           "BGP neighbor IP definition not supported in line " + ctx.getText());
     }
-    _currentBgpNxVrfNeighbor = _currentBgpNxVrfConfiguration.getOrCreateNeighbor(address);
 
     if (ctx.REMOTE_AS() != null && ctx.bgp_asn() != null) {
       long asn = toAsNum(ctx.bgp_asn());
