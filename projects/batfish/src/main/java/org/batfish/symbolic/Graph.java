@@ -82,6 +82,7 @@ public class Graph {
   private static final String NULL_INTERFACE_NAME = "null_interface";
   private IBatfish _batfish;
   private Set<String> _routers;
+  private Map<String, Integer> _nodeMultiplicity;
   private Map<String, Configuration> _configurations;
   private Map<String, Set<Long>> _areaIds;
   private Table2<String, String, List<StaticRoute>> _staticRoutes;
@@ -132,17 +133,32 @@ public class Graph {
    * to defensively copy them or use {@link #Graph(IBatfish)}, which will do the defensive copy
    * automatically, to avoid this side effect.
    */
-  public Graph(IBatfish batfish, @Nullable Map<String, Configuration> configs) {
-    this(batfish, configs, null);
+  public Graph(IBatfish batfish,
+               @Nullable Map<String, Configuration> configs,
+               @Nullable Map<String, Integer> nodeMultiplicity) {
+    this(batfish, configs, null, nodeMultiplicity);
   }
 
+  private Map<String, Integer> computeMultiplicities(Set<String> routers,
+                                    @Nullable Map<String, Integer> nodeMultiplicity) {
+    if (nodeMultiplicity == null)
+    {
+      nodeMultiplicity = new HashMap<>();
+      for (String router : routers)
+      {
+        nodeMultiplicity.put(router, 1);
+      }
+    }
+    return nodeMultiplicity;
+  }
   /*
    * Create a graph, while selecting the subset of routers to use.
    */
   public Graph(
       IBatfish batfish,
       @Nullable Map<String, Configuration> configs,
-      @Nullable Set<String> routers) {
+      @Nullable Set<String> routers,
+      @Nullable Map<String, Integer> nodeMultiplicity) {
     _batfish = batfish;
     _edgeMap = new HashMap<>();
     _allEdges = new HashSet<>();
@@ -176,6 +192,7 @@ public class Graph {
       _configurations = clonedConfigs;
     }
     _routers = _configurations.keySet();
+    _nodeMultiplicity = computeMultiplicities(_routers, nodeMultiplicity);
 
     Topology topology = _batfish.getEnvironmentTopology();
 

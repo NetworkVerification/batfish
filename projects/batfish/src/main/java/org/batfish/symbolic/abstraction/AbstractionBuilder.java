@@ -33,6 +33,11 @@ import org.batfish.symbolic.collections.Table2;
 import org.batfish.symbolic.collections.UnionSplit;
 import org.batfish.symbolic.utils.Tuple;
 
+/* Questions:
+  1. What is possibleFailures? Is it for the dynamic static routes?
+  2. What is countMatters on refinement?
+ */
+
 class AbstractionBuilder {
 
   private static final int EBGP_INDEX = -1;
@@ -575,6 +580,7 @@ class AbstractionBuilder {
     return abstractConf;
   }
 
+
   /*
    * Create a collection of abstract configurations given the roles computed
    * and the collection of concrete devices. Chooses a collection of canonical
@@ -597,8 +603,14 @@ class AbstractionBuilder {
         newConfigs.put(router, abstractConf);
       }
     }
-    Graph abstractGraph = new Graph(_batfish, newConfigs);
     AbstractionMap map = new AbstractionMap(canonicalChoices, _abstractGroups.getParitionMap());
+    // Create the node multiplicity map
+    Map <String, Integer> nodeMultiplicity = new HashMap<>();
+    for (String abstractRouter : abstractRouters) {
+      nodeMultiplicity.put(abstractRouter, map.getAbstractionMultiplicity(abstractRouter));
+    }
+    // Create the abstract graph
+    Graph abstractGraph = new Graph(_batfish, newConfigs, nodeMultiplicity);
     return new Tuple<>(abstractGraph, map);
   }
 }

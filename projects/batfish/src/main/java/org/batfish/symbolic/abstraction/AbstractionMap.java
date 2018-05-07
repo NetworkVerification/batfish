@@ -23,4 +23,14 @@ public class AbstractionMap {
     }
     return result;
   }
+
+  public Integer getAbstractionMultiplicity(String router) {
+    Integer idx = _groupMap.get(router);
+    Set<String> result = _abstractChoices.get(idx);
+    if (result == null) {
+      return 0; // or some type of exception
+    }
+    return result.size();
+  }
+
 }

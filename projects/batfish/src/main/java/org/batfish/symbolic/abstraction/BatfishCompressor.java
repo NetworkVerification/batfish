@@ -64,7 +64,7 @@ public class BatfishCompressor {
 
   public BatfishCompressor(IBatfish batfish, Map<String, Configuration> configs) {
     _batfish = batfish;
-    _graph = new Graph(batfish, configs);
+    _graph = new Graph(batfish, configs, null);
     _internalRegex = internalRegex();
   }
 

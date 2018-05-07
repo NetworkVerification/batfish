@@ -270,7 +270,7 @@ public class Encoder {
           hs.setIpProtocols(protocols);
 
           // TODO: create domains once
-          Graph gNew = new Graph(g.getBatfish(), null, g.getDomain(router));
+          Graph gNew = new Graph(g.getBatfish(), null, g.getDomain(router), null);
           String sliceName = "SLICE-" + router + "_";
           EncoderSlice slice = new EncoderSlice(this, hs, gNew, sliceName);
           _slices.put(sliceName, slice);

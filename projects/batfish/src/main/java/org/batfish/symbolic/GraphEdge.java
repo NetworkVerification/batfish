@@ -40,6 +40,8 @@ public class GraphEdge {
 
   private boolean _isNullEdge;
 
+  private int _multiplicity;
+
   @JsonCreator
   public GraphEdge(
       @JsonProperty(START_VAR) Interface start,
