@@ -371,6 +371,10 @@ public class Encoder {
     return getCtx().mkAdd(e1, e2);
   }
 
+  ArithExpr mkMul(ArithExpr e1, ArithExpr e2) {
+    return getCtx().mkMul(e1, e2);
+  }
+
   // Symbolic greater than or equal to
   BoolExpr mkGe(Expr e1, Expr e2) {
     if (e1 instanceof ArithExpr && e2 instanceof ArithExpr) {
@@ -410,24 +414,40 @@ public class Encoder {
    *
    * 0 <= link_i <= 1
    *
-   * Then we ensure that the sum of all links is never more than k:
+   * Then we ensure that the sum of all links multiplied by their multiplicity is never more than k:
    *
-   * link_1 + link_2 + ... + link_n <= k
+   * link_1*M(link_1) + link_2*M(link_2) + ... + link_n*M(link_n) <= k
+   *
+   * There is a small hack here: the sum only applies to links whose underlying node has
+   * multiplicity 1. If it's larger than 1, then by construction we know that failures on these
+   * links do not change their behavior (proof in paper).
    */
+
   private void addFailedConstraints(int k) {
-    Set<ArithExpr> vars = new HashSet<>();
-    getSymbolicFailures().getFailedInternalLinks().forEach((router, peer, var) -> vars.add(var));
-    getSymbolicFailures().getFailedEdgeLinks().forEach((ge, var) -> vars.add(var));
+    Set<Tuple<ArithExpr, Integer>> vars = new HashSet<>();
+    getSymbolicFailures().getFailedInternalLinks().forEach((router, peer, var) -> {
+      if (_graph.getNodeMultiplicity().get(router) == 1)
+        vars.add(new Tuple<>(var, _graph.getNodeMultiplicity().get(peer)));
+    });
+
+    /* adding the constraints below causes a crash because node multiplicity is null? */
+    /*getSymbolicFailures().getFailedEdgeLinks().forEach((ge, var) ->
+    {
+      if (_graph.getNodeMultiplicity().get(ge.getRouter()) == 1)
+        vars.add(new Tuple<>(var, _graph.getNodeMultiplicity().get(ge.getPeer())));
+    }); */
 
     ArithExpr sum = mkInt(0);
-    for (ArithExpr var : vars) {
-      sum = mkSum(sum, var);
-      add(mkGe(var, mkInt(0)));
-      add(mkLe(var, mkInt(1)));
+    for (Tuple<ArithExpr, Integer> var : vars) {
+      ArithExpr v = var.getFirst();
+      ArithExpr n = mkInt(var.getSecond());
+      sum = mkSum(sum, mkMul(v, n));
+      add(mkGe(var.getFirst(), mkInt(0)));
+      add(mkLe(var.getFirst(), mkInt(1)));
     }
     if (k == 0) {
-      for (ArithExpr var : vars) {
-        add(mkEq(var, mkInt(0)));
+      for (Tuple<ArithExpr, Integer> var : vars) {
+        add(mkEq(var.getFirst(), mkInt(0)));
       }
     } else {
       add(mkLe(sum, mkInt(k)));

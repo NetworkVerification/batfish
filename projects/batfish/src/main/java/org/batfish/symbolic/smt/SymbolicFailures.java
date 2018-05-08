@@ -37,7 +37,7 @@ class SymbolicFailures {
 
   @Nullable
   ArithExpr getFailedVariable(GraphEdge ge) {
-    if (ge.isAbstract()) {
+    if (ge.isAbstract()) { // QUESTION: this has to do with ibgp right?
       return _zero;
     }
     if (ge.getPeer() == null) {

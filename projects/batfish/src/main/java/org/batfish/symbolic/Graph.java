@@ -1310,4 +1310,9 @@ public class Graph {
   public Set<String> getRouters() {
     return _routers;
   }
+
+  public Map<String, Integer> getNodeMultiplicity() {
+    return _nodeMultiplicity;
+  }
+
 }

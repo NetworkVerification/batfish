@@ -401,19 +401,29 @@ class AbstractionBuilder {
 
     // Need to choose representatives that are connected
     while (!stack.isEmpty()) {
-      String router = stack.pop();
+      String router = stack.pop(); // take an abstract node from the stack (initially the dest)
+      Integer router_id = _abstractGroups.getHandle(router); // get id of node
+      // get node multiplicity of abstract group
+      Integer router_N = _abstractGroups.getPartition(router_id).size();
 
+      //find the neighbors of this router (grouped by abstract id)
       Map<Integer, Set<String>> neighbors = neighborByAbstractId.get(router);
       if (neighbors == null) {
-        continue;
+        continue; //if there are no neighbors, skip
       }
+      // otherwise for each neighbor group
       for (Entry<Integer, Set<String>> entry : neighbors.entrySet()) {
-        Integer j = entry.getKey();
+        Integer j = entry.getKey(); // abstract id of group
 
-        Set<String> peers = entry.getValue();
+        Set<String> peers = entry.getValue(); // concrete nodes of group
         Set<String> chosenPeers = chosen.computeIfAbsent(j, k -> new HashSet<>());
         // Find how many choices we need, and collect the options
-        int numNeeded = _possibleFailures + 1;
+        int numNeeded = 1; // by default just 1
+        if (_possibleFailures == peers.size())
+          numNeeded = 2; // if the number of possible failures is equal to the edge multiplicity 2
+        else if (_possibleFailures > peers.size())
+          // otherwise this part needs to be fully concrete
+          numNeeded = _abstractGroups.getPartition(_abstractGroups.getHandle(router)).size();
         options.clear();
         for (String x : peers) {
           if (chosenPeers.contains(x)) {
@@ -588,6 +598,7 @@ class AbstractionBuilder {
    * that connect to non-canonical routers.
    */
   private Tuple<Graph, AbstractionMap> createAbstractNetwork() {
+
     Map<Integer, Set<String>> canonicalChoices = pickCanonicalRouters();
     Set<String> abstractRouters = new HashSet<>();
     for (Set<String> canonical : canonicalChoices.values()) {
@@ -604,11 +615,13 @@ class AbstractionBuilder {
       }
     }
     AbstractionMap map = new AbstractionMap(canonicalChoices, _abstractGroups.getParitionMap());
+
     // Create the node multiplicity map
     Map <String, Integer> nodeMultiplicity = new HashMap<>();
     for (String abstractRouter : abstractRouters) {
       nodeMultiplicity.put(abstractRouter, map.getAbstractionMultiplicity(abstractRouter));
     }
+
     // Create the abstract graph
     Graph abstractGraph = new Graph(_batfish, newConfigs, nodeMultiplicity);
     return new Tuple<>(abstractGraph, map);
