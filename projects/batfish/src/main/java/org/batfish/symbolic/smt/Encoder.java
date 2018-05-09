@@ -430,12 +430,12 @@ public class Encoder {
         vars.add(new Tuple<>(var, _graph.getNodeMultiplicity().get(peer)));
     });
 
-    /* adding the constraints below causes a crash because node multiplicity is null? */
-    /*getSymbolicFailures().getFailedEdgeLinks().forEach((ge, var) ->
+    /* external peer multiplicity is 1?*/
+    getSymbolicFailures().getFailedEdgeLinks().forEach((ge, var) ->
     {
       if (_graph.getNodeMultiplicity().get(ge.getRouter()) == 1)
-        vars.add(new Tuple<>(var, _graph.getNodeMultiplicity().get(ge.getPeer())));
-    }); */
+        vars.add(new Tuple<>(var, 1));
+    });
 
     ArithExpr sum = mkInt(0);
     for (Tuple<ArithExpr, Integer> var : vars) {

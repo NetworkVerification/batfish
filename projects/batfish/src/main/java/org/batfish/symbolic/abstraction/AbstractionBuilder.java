@@ -149,9 +149,8 @@ class AbstractionBuilder {
 
         if (needUniversalAbstraction()) {
           refineAbstraction(todo, ps, partition, false, true);
-        } else if (_possibleFailures > 0) {
-          refineAbstraction(todo, ps, partition, true, false);
-        } else {
+        }
+        else {
           refineAbstraction(todo, ps, partition, false, false);
         }
         // If something changed, then start over early
@@ -332,7 +331,7 @@ class AbstractionBuilder {
 
   // TODO: lookup based on local preference
   private boolean needUniversalAbstraction() {
-    return false;
+    return (_possibleFailures > 0);
   }
 
   /*
@@ -616,6 +615,9 @@ class AbstractionBuilder {
     }
     AbstractionMap map = new AbstractionMap(canonicalChoices, _abstractGroups.getParitionMap());
 
+    System.out.println("Number of possible failures: " + _possibleFailures);
+    System.out.println("Number of abstract nodes: " + (abstractRouters.size()));
+    System.out.println("Abstract nodes: " + abstractRouters);
     // Create the node multiplicity map
     Map <String, Integer> nodeMultiplicity = new HashMap<>();
     for (String abstractRouter : abstractRouters) {
