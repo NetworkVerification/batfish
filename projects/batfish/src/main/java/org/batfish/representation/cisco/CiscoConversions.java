@@ -35,6 +35,7 @@ import org.batfish.datamodel.AsPathAccessListLine;
 import org.batfish.datamodel.CommunityList;
 import org.batfish.datamodel.CommunityListLine;
 import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.EmptyIpSpace;
 import org.batfish.datamodel.HeaderSpace;
 import org.batfish.datamodel.IkeGateway;
 import org.batfish.datamodel.IkeKeyType;
@@ -86,11 +87,13 @@ import org.batfish.datamodel.routing_policy.expr.CallExpr;
 import org.batfish.datamodel.routing_policy.expr.CommunitySetExpr;
 import org.batfish.datamodel.routing_policy.expr.Conjunction;
 import org.batfish.datamodel.routing_policy.expr.DestinationNetwork;
+import org.batfish.datamodel.routing_policy.expr.Disjunction;
 import org.batfish.datamodel.routing_policy.expr.ExplicitPrefixSet;
 import org.batfish.datamodel.routing_policy.expr.LiteralCommunity;
 import org.batfish.datamodel.routing_policy.expr.LiteralCommunityConjunction;
 import org.batfish.datamodel.routing_policy.expr.LiteralEigrpMetric;
 import org.batfish.datamodel.routing_policy.expr.MatchPrefixSet;
+import org.batfish.datamodel.routing_policy.expr.MatchProcessAsn;
 import org.batfish.datamodel.routing_policy.expr.MatchProtocol;
 import org.batfish.datamodel.routing_policy.expr.NamedPrefixSet;
 import org.batfish.datamodel.routing_policy.statement.If;
@@ -245,7 +248,7 @@ class CiscoConversions {
       Configuration c, String vrfName, Prefix prefix) {
     BooleanExpr matchLongerNetworks =
         new MatchPrefixSet(
-            new DestinationNetwork(),
+            DestinationNetwork.instance(),
             new ExplicitPrefixSet(new PrefixSpace(PrefixRange.moreSpecificThan(prefix))));
     If currentGeneratedRouteConditional =
         new If(matchLongerNetworks, singletonList(Statements.ReturnTrue.toStaticStatement()));
@@ -279,13 +282,14 @@ class CiscoConversions {
     prefixesToSuppress.forEachRemaining(
         p ->
             matchLonger.addLine(
-                new RouteFilterLine(LineAction.ACCEPT, PrefixRange.moreSpecificThan(p))));
+                new RouteFilterLine(LineAction.PERMIT, PrefixRange.moreSpecificThan(p))));
     // Bookkeeping: record that we created this RouteFilterList to match longer networks.
     c.getRouteFilterLists().put(matchLonger.getName(), matchLonger);
 
     return new If(
         "Suppress more specific networks for summary-only aggregate-address networks",
-        new MatchPrefixSet(new DestinationNetwork(), new NamedPrefixSet(matchLonger.getName())),
+        new MatchPrefixSet(
+            DestinationNetwork.instance(), new NamedPrefixSet(matchLonger.getName())),
         ImmutableList.of(Statements.Suppress.toStaticStatement()),
         ImmutableList.of());
   }
@@ -566,7 +570,7 @@ class CiscoConversions {
   }
 
   static IpSpace toIpSpace(NetworkObjectGroup networkObjectGroup) {
-    return AclIpSpace.union(networkObjectGroup.getLines());
+    return firstNonNull(AclIpSpace.union(networkObjectGroup.getLines()), EmptyIpSpace.INSTANCE);
   }
 
   /** Converts a {@link Tunnel} to an {@link IpsecPeerConfig} */
@@ -993,7 +997,25 @@ class CiscoConversions {
     RoutingProtocol protocol = policy.getSourceProtocol();
     // All redistribution must match the specified protocol.
     Conjunction eigrpExportConditions = new Conjunction();
-    eigrpExportConditions.getConjuncts().add(new MatchProtocol(protocol));
+    BooleanExpr matchExpr;
+    if (protocol == RoutingProtocol.EIGRP) {
+      matchExpr =
+          new Disjunction(
+              ImmutableList.of(
+                  new MatchProtocol(RoutingProtocol.EIGRP),
+                  new MatchProtocol(RoutingProtocol.EIGRP_EX)));
+
+      Long otherAsn =
+          (Long) policy.getSpecialAttributes().get(EigrpRedistributionPolicy.EIGRP_AS_NUMBER);
+      if (otherAsn == null) {
+        oldConfig.getWarnings().redFlag("Unable to redistribute - policy has no ASN");
+        return null;
+      }
+      eigrpExportConditions.getConjuncts().add(new MatchProcessAsn(otherAsn));
+    } else {
+      matchExpr = new MatchProtocol(protocol);
+    }
+    eigrpExportConditions.getConjuncts().add(matchExpr);
 
     // Default routes can be redistributed into EIGRP. Don't filter them.
 
@@ -1001,19 +1023,19 @@ class CiscoConversions {
 
     // Set the metric
     // TODO prefer metric from route map
+    // https://github.com/batfish/batfish/issues/2070
     EigrpMetric metric = policy.getMetric() != null ? policy.getMetric() : proc.getDefaultMetric();
-    if (metric == null) {
+    if (metric != null) {
+      eigrpExportStatements.add(new SetEigrpMetric(new LiteralEigrpMetric(metric)));
+    } else if (protocol != RoutingProtocol.EIGRP) {
       /*
-       * TODO no default metric
+       * TODO no default metric (and not EIGRP into EIGRP)
        * 1) connected can use the interface metric
        * 2) static with next hop interface can use the interface metric
-       * 3) redistribution of eigrp into eigrp can directly use the 'external' route metric
-       * 4) If none of the above, bad configuration
+       * 3) If none of the above, bad configuration
        */
       oldConfig.getWarnings().redFlag("Unable to redistribute - no metric");
       return null;
-    } else {
-      eigrpExportStatements.add(new SetEigrpMetric(new LiteralEigrpMetric(metric)));
     }
 
     String exportRouteMapName = policy.getRouteMap();
@@ -1072,6 +1094,17 @@ class CiscoConversions {
     return new Route6FilterList(name, lines);
   }
 
+  static Route6FilterList toRoute6FilterList(StandardIpv6AccessList eaList) {
+    String name = eaList.getName();
+    List<Route6FilterLine> lines =
+        eaList
+            .getLines()
+            .stream()
+            .map(CiscoConversions::toRoute6FilterLine)
+            .collect(ImmutableList.toImmutableList());
+    return new Route6FilterList(name, lines);
+  }
+
   static Route6FilterList toRoute6FilterList(Prefix6List list) {
     List<Route6FilterLine> lines =
         list.getLines()
@@ -1089,6 +1122,16 @@ class CiscoConversions {
             .map(CiscoConversions::toRouteFilterLine)
             .collect(ImmutableList.toImmutableList());
     return new RouteFilterList(eaList.getName(), lines);
+  }
+
+  static RouteFilterList toRouteFilterList(StandardAccessList saList) {
+    List<RouteFilterLine> lines =
+        saList
+            .getLines()
+            .stream()
+            .map(CiscoConversions::toRouteFilterLine)
+            .collect(ImmutableList.toImmutableList());
+    return new RouteFilterList(saList.getName(), lines);
   }
 
   static RouteFilterList toRouteFilterList(PrefixList list) {
@@ -1179,13 +1222,13 @@ class CiscoConversions {
   private static AsPathAccessListLine toAsPathAccessListLine(AsPathSetElem elem) {
     String regex = CiscoConfiguration.toJavaRegex(elem.regex());
     AsPathAccessListLine line = new AsPathAccessListLine();
-    line.setAction(LineAction.ACCEPT);
+    line.setAction(LineAction.PERMIT);
     line.setRegex(regex);
     return line;
   }
 
   private static CommunityListLine toCommunityListLine(CommunitySetElem elem) {
-    return new CommunityListLine(LineAction.ACCEPT, elem.toCommunitySetExpr());
+    return new CommunityListLine(LineAction.PERMIT, elem.toCommunitySetExpr());
   }
 
   private static CommunityListLine toCommunityListLine(ExpandedCommunityListLine eclLine) {
@@ -1217,6 +1260,17 @@ class CiscoConversions {
     return new Route6FilterLine(action, prefix, new SubRange(minPrefixLength, maxPrefixLength));
   }
 
+  /** Convert a standard IPv6 access list line to a route filter list line */
+  private static Route6FilterLine toRoute6FilterLine(StandardIpv6AccessListLine fromLine) {
+    LineAction action = fromLine.getAction();
+    Prefix6 prefix = fromLine.getIpWildcard().toPrefix();
+
+    return new Route6FilterLine(
+        action,
+        new Ip6Wildcard(prefix),
+        new SubRange(prefix.getPrefixLength(), Prefix6.MAX_PREFIX_LENGTH));
+  }
+
   private static RouteFilterLine toRouteFilterLine(ExtendedAccessListLine fromLine) {
     LineAction action = fromLine.getAction();
     IpWildcard srcIpWildcard =
@@ -1233,6 +1287,23 @@ class CiscoConversions {
     Prefix prefix = new Prefix(ip, prefixLength);
     return new RouteFilterLine(
         action, new IpWildcard(prefix), new SubRange(minPrefixLength, maxPrefixLength));
+  }
+
+  /** Convert a standard access list line to a route filter list line */
+  private static RouteFilterLine toRouteFilterLine(StandardAccessListLine fromLine) {
+    LineAction action = fromLine.getAction();
+    /*
+     * This cast is safe since the other address specifier (network object group specifier)
+     * can be used only from extended ACLs.
+     */
+    IpWildcard srcIpWildcard =
+        ((WildcardAddressSpecifier) fromLine.getSrcAddressSpecifier()).getIpWildcard();
+    Prefix prefix = srcIpWildcard.toPrefix();
+
+    return new RouteFilterLine(
+        action,
+        new IpWildcard(prefix),
+        new SubRange(prefix.getPrefixLength(), Prefix.MAX_PREFIX_LENGTH));
   }
 
   private CiscoConversions() {} // prevent instantiation of utility class

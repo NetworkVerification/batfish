@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.NavigableSet;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -126,6 +128,8 @@ public final class Configuration implements Serializable {
 
   private static final String PROP_IKE_PHASE1_PROPOSALS = "ikePhase1Proposals";
 
+  private static final String PROP_INTERFACES = "interfaces";
+
   private static final String PROP_IP_ACCESS_LISTS = "ipAccessLists";
 
   private static final String PROP_IP_SPACES = "ipSpaces";
@@ -144,9 +148,13 @@ public final class Configuration implements Serializable {
 
   private static final String PROP_IPSEC_VPNS = "ipsecVpns";
 
+  private static final String PROP_LOGGING_SERVERS = "loggingServers";
+
   private static final String PROP_LOGGING_SOURCE_INTERFACE = "loggingSourceInterface";
 
   private static final String PROP_NAME = "name";
+
+  private static final String PROP_NTP_SERVERS = "ntpServers";
 
   private static final String PROP_NTP_SOURCE_INTERFACE = "ntpSourceInterface";
 
@@ -163,6 +171,10 @@ public final class Configuration implements Serializable {
   private static final String PROP_TACACS_SOURCE_INTERFACE = "tacacsSourceInterface";
 
   private static final String PROP_TRACKING_GROUPS = "trackingGroups";
+
+  private static final String PROP_VENDOR_FAMILY = "vendorFamily";
+
+  private static final String PROP_VRFS = "vrfs";
 
   private static final String PROP_ZONES = "zones";
 
@@ -398,6 +410,24 @@ public final class Configuration implements Serializable {
         .orElse(null);
   }
 
+  public Set<String> activeInterfaces() {
+    return _interfaces
+        .values()
+        .stream()
+        .filter(Interface::getActive)
+        .map(Interface::getName)
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
+  public Set<String> inactiveInterfaces() {
+    return _interfaces
+        .values()
+        .stream()
+        .filter(iface -> !iface.getActive())
+        .map(Interface::getName)
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
   @JsonProperty(PROP_COMMUNITY_LISTS)
   @JsonPropertyDescription("Dictionary of all community-lists for this node.")
   public NavigableMap<String, CommunityList> getCommunityLists() {
@@ -494,6 +524,7 @@ public final class Configuration implements Serializable {
   }
 
   @JsonPropertyDescription("Dictionary of all interfaces across all VRFs for this node.")
+  @JsonProperty(PROP_INTERFACES)
   public NavigableMap<String, Interface> getInterfaces() {
     return _interfaces;
   }
@@ -555,6 +586,7 @@ public final class Configuration implements Serializable {
     return _ipsecVpns;
   }
 
+  @JsonProperty(PROP_LOGGING_SERVERS)
   public NavigableSet<String> getLoggingServers() {
     return _loggingServers;
   }
@@ -569,6 +601,7 @@ public final class Configuration implements Serializable {
     return _normalVlanRange;
   }
 
+  @JsonProperty(PROP_NTP_SERVERS)
   public NavigableSet<String> getNtpServers() {
     return _ntpServers;
   }
@@ -681,11 +714,13 @@ public final class Configuration implements Serializable {
   }
 
   @JsonPropertyDescription("Object containing vendor-specific information for this node.")
+  @JsonProperty(PROP_VENDOR_FAMILY)
   public VendorFamily getVendorFamily() {
     return _vendorFamily;
   }
 
   @JsonPropertyDescription("Dictionary of all VRFs for this node.")
+  @JsonProperty(PROP_VRFS)
   public Map<String, Vrf> getVrfs() {
     return _vrfs;
   }
@@ -786,6 +821,7 @@ public final class Configuration implements Serializable {
     _ikeProposals = ikeProposals;
   }
 
+  @JsonProperty(PROP_INTERFACES)
   public void setInterfaces(NavigableMap<String, Interface> interfaces) {
     _interfaces = interfaces;
   }
@@ -846,6 +882,7 @@ public final class Configuration implements Serializable {
     _ipsecVpns = ipsecVpns;
   }
 
+  @JsonProperty(PROP_LOGGING_SERVERS)
   public void setLoggingServers(NavigableSet<String> loggingServers) {
     _loggingServers = loggingServers;
   }
@@ -860,6 +897,7 @@ public final class Configuration implements Serializable {
     _normalVlanRange = normalVlanRange;
   }
 
+  @JsonProperty(PROP_NTP_SERVERS)
   public void setNtpServers(NavigableSet<String> ntpServers) {
     _ntpServers = ntpServers;
   }
@@ -908,10 +946,12 @@ public final class Configuration implements Serializable {
     _trackingGroups = trackingGroups;
   }
 
+  @JsonProperty(PROP_VENDOR_FAMILY)
   public void setVendorFamily(VendorFamily vendorFamily) {
     _vendorFamily = vendorFamily;
   }
 
+  @JsonProperty(PROP_VRFS)
   public void setVrfs(Map<String, Vrf> vrfs) {
     _vrfs = vrfs;
   }

@@ -54,6 +54,7 @@ import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpAccessListLine;
 import org.batfish.datamodel.IpSpace;
+import org.batfish.datamodel.IpSpaceMetadata;
 import org.batfish.datamodel.IpSpaceReference;
 import org.batfish.datamodel.IpWildcardSetIpSpace;
 import org.batfish.datamodel.IpsecPeerConfig;
@@ -129,7 +130,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
           .setLines(
               ImmutableList.of(
                   new IpAccessListLine(
-                      LineAction.ACCEPT,
+                      LineAction.PERMIT,
                       new MatchHeaderSpace(
                           HeaderSpace.builder()
                               .setStates(ImmutableList.of(State.ESTABLISHED))
@@ -238,7 +239,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
     _applicationSets = new TreeMap<>();
     _authenticationKeyChains = new TreeMap<>();
     _communityLists = new TreeMap<>();
-    _defaultCrossZoneAction = LineAction.ACCEPT;
+    _defaultCrossZoneAction = LineAction.PERMIT;
     _defaultRoutingInstance = new RoutingInstance(Configuration.DEFAULT_VRF_NAME);
     _dnsServers = new TreeSet<>();
     _filters = new TreeMap<>();
@@ -1070,12 +1071,12 @@ public final class JuniperConfiguration extends VendorConfiguration {
     routingPolicyConditional.getFalseStatements().add(Statements.ExitReject.toStaticStatement());
     String rflName = "~AGGREGATE_" + policyNameSuffix + "_RF~";
     MatchPrefixSet isContributingRoute =
-        new MatchPrefixSet(new DestinationNetwork(), new NamedPrefixSet(rflName));
+        new MatchPrefixSet(DestinationNetwork.instance(), new NamedPrefixSet(rflName));
     routingPolicyConditional.setGuard(isContributingRoute);
     RouteFilterList rfList = new RouteFilterList(rflName);
     rfList.addLine(
         new org.batfish.datamodel.RouteFilterLine(
-            LineAction.ACCEPT, prefix, new SubRange(prefixLength + 1, Prefix.MAX_PREFIX_LENGTH)));
+            LineAction.PERMIT, prefix, new SubRange(prefixLength + 1, Prefix.MAX_PREFIX_LENGTH)));
     org.batfish.datamodel.GeneratedRoute.Builder newRoute =
         new org.batfish.datamodel.GeneratedRoute.Builder();
     newRoute.setNetwork(prefix);
@@ -1099,12 +1100,12 @@ public final class JuniperConfiguration extends VendorConfiguration {
     routingPolicyConditional.getFalseStatements().add(Statements.ExitReject.toStaticStatement());
     String rflName = "~SUMMARY" + policyNameSuffix + "_RF~";
     MatchPrefixSet isContributingRoute =
-        new MatchPrefixSet(new DestinationNetwork(), new NamedPrefixSet(rflName));
+        new MatchPrefixSet(DestinationNetwork.instance(), new NamedPrefixSet(rflName));
     routingPolicyConditional.setGuard(isContributingRoute);
     RouteFilterList rfList = new RouteFilterList(rflName);
     rfList.addLine(
         new org.batfish.datamodel.RouteFilterLine(
-            LineAction.ACCEPT, prefix, new SubRange(prefixLength + 1, Prefix.MAX_PREFIX_LENGTH)));
+            LineAction.PERMIT, prefix, new SubRange(prefixLength + 1, Prefix.MAX_PREFIX_LENGTH)));
     org.batfish.datamodel.GeneratedRoute.Builder newRoute =
         new org.batfish.datamodel.GeneratedRoute.Builder();
     newRoute.setNetwork(prefix);
@@ -1128,7 +1129,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
       String javaRegex = communityRegexToJavaRegex(regex);
       org.batfish.datamodel.CommunityListLine newLine =
           new org.batfish.datamodel.CommunityListLine(
-              LineAction.ACCEPT, new RegexCommunitySet(javaRegex));
+              LineAction.PERMIT, new RegexCommunitySet(javaRegex));
       newLines.add(newLine);
     }
     org.batfish.datamodel.CommunityList newCl =
@@ -1382,13 +1383,13 @@ public final class JuniperConfiguration extends VendorConfiguration {
     /* Default ACL that allows existing connections should be added to all security policies */
     zoneAclLines.add(
         new IpAccessListLine(
-            LineAction.ACCEPT,
+            LineAction.PERMIT,
             new PermittedByAcl(ACL_NAME_EXISTING_CONNECTION, false),
             "EXISTING_CONNECTION"));
 
     /* Default policy allows traffic originating from the device to be accepted */
     zoneAclLines.add(
-        new IpAccessListLine(LineAction.ACCEPT, OriginatingFromDevice.INSTANCE, "HOST_OUTBOUND"));
+        new IpAccessListLine(LineAction.PERMIT, OriginatingFromDevice.INSTANCE, "HOST_OUTBOUND"));
 
     /* Zone specific policies */
     if (zone != null && !zone.getFromZonePolicies().isEmpty()) {
@@ -1396,13 +1397,13 @@ public final class JuniperConfiguration extends VendorConfiguration {
         /* Handle explicit accept lines from this policy */
         zoneAclLines.add(
             new IpAccessListLine(
-                LineAction.ACCEPT, new PermittedByAcl(e.getKey(), false), e.getKey() + "ACCEPT"));
+                LineAction.PERMIT, new PermittedByAcl(e.getKey(), false), e.getKey() + "PERMIT"));
         /* Handle explicit deny lines from this policy, this is needed so only unmatched lines fall-through to the next lines */
         zoneAclLines.add(
             new IpAccessListLine(
-                LineAction.REJECT,
+                LineAction.DENY,
                 new NotMatchExpr(new PermittedByAcl(e.getKey(), true)),
-                e.getKey() + "REJECT"));
+                e.getKey() + "DENY"));
       }
     }
 
@@ -1411,13 +1412,13 @@ public final class JuniperConfiguration extends VendorConfiguration {
       /* Handle explicit accept lines for global policy */
       zoneAclLines.add(
           new IpAccessListLine(
-              LineAction.ACCEPT,
+              LineAction.PERMIT,
               new PermittedByAcl(ACL_NAME_GLOBAL_POLICY, false),
               "GLOBAL_POLICY_ACCEPT"));
       /* Handle explicit deny lines for global policy, this is needed so only unmatched lines fall-through to the next lines */
       zoneAclLines.add(
           new IpAccessListLine(
-              LineAction.REJECT,
+              LineAction.DENY,
               new NotMatchExpr(new PermittedByAcl(ACL_NAME_GLOBAL_POLICY, true)),
               "GLOBAL_POLICY_REJECT"));
     }
@@ -1459,7 +1460,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
             .setLines(
                 ImmutableList.of(
                     new IpAccessListLine(
-                        LineAction.ACCEPT, new AndMatchExpr(aclConjunctList), "ACCEPT")))
+                        LineAction.PERMIT, new AndMatchExpr(aclConjunctList), "PERMIT")))
             .build();
     _c.getIpAccessLists().put(combinedAclName, combinedAcl);
     return combinedAcl;
@@ -1477,19 +1478,19 @@ public final class JuniperConfiguration extends VendorConfiguration {
       // action
       LineAction action;
       if (term.getThens().contains(FwThenAccept.INSTANCE)) {
-        action = LineAction.ACCEPT;
+        action = LineAction.PERMIT;
       } else if (term.getThens().contains(FwThenDiscard.INSTANCE)) {
-        action = LineAction.REJECT;
+        action = LineAction.DENY;
       } else if (term.getThens().contains(FwThenNextTerm.INSTANCE)) {
         // TODO: throw error if any transformation is being done
         continue;
       } else if (term.getThens().contains(FwThenNop.INSTANCE)) {
         // we assume for now that any 'nop' operations imply acceptance
-        action = LineAction.ACCEPT;
+        action = LineAction.PERMIT;
       } else {
         _w.redFlag(
             "missing action in firewall filter: '" + aclName + "', term: '" + term.getName() + "'");
-        action = LineAction.REJECT;
+        action = LineAction.DENY;
       }
       HeaderSpace.Builder matchCondition = HeaderSpace.builder();
       for (FwFrom from : term.getFroms()) {
@@ -1718,7 +1719,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
                           aclIpSpaceLineBuilder.add(
                               AclIpSpaceLine.builder()
                                   .setIpSpace(new IpSpaceReference(subEntryName))
-                                  .setAction(LineAction.ACCEPT)
+                                  .setAction(LineAction.PERMIT)
                                   .build());
                         });
                 ipSpaces.put(
@@ -1787,7 +1788,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
     // line.getSrcIps().add(srcWildcard);
     // }
     // line.getDstPorts().addAll(sourcePortRanges);
-    // line.setAction(LineAction.ACCEPT);
+    // line.setAction(LineAction.PERMIT);
     // IpAccessList termIpAccessList = new IpAccessList(
     // termIpAccessListName, Collections.singletonList(line));
     // _c.getIpAccessLists().put(termIpAccessListName, termIpAccessList);
@@ -1864,7 +1865,8 @@ public final class JuniperConfiguration extends VendorConfiguration {
                     routeFilterName + "_ACTION_LINE_" + actionLineCounter;
                 lineSpecificIfStatement.setComment(lineSpecificClauseName);
                 MatchPrefixSet mrf =
-                    new MatchPrefixSet(new DestinationNetwork(), new NamedPrefixSet(lineListName));
+                    new MatchPrefixSet(
+                        DestinationNetwork.instance(), new NamedPrefixSet(lineListName));
                 lineSpecificIfStatement.setGuard(mrf);
                 lineSpecificIfStatement.getTrueStatements().addAll(toStatements(line.getThens()));
                 statements.add(lineSpecificIfStatement);
@@ -1967,7 +1969,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
         int prefixLength = prefix.getPrefixLength();
         org.batfish.datamodel.RouteFilterLine line =
             new org.batfish.datamodel.RouteFilterLine(
-                LineAction.ACCEPT, prefix, new SubRange(prefixLength, prefixLength));
+                LineAction.PERMIT, prefix, new SubRange(prefixLength, prefixLength));
         rfl.addLine(line);
       }
       _c.getRouteFilterLists().put(name, rfl);
@@ -1975,7 +1977,20 @@ public final class JuniperConfiguration extends VendorConfiguration {
 
     // Convert AddressBooks to IpSpaces
     _globalAddressBooks.forEach(
-        (name, addressBook) -> _c.getIpSpaces().putAll(toIpSpaces(name, addressBook)));
+        (name, addressBook) -> {
+          Map<String, IpSpace> ipspaces = toIpSpaces(name, addressBook);
+          _c.getIpSpaces().putAll(ipspaces);
+          ipspaces
+              .keySet()
+              .forEach(
+                  ipSpaceName ->
+                      _c.getIpSpaceMetadata()
+                          .put(
+                              ipSpaceName,
+                              new IpSpaceMetadata(
+                                  ipSpaceName,
+                                  JuniperStructureType.ADDRESS_BOOK.getDescription())));
+        });
 
     // TODO: instead make both IpAccessList and Ip6AccessList instances from
     // such firewall filters
@@ -2191,7 +2206,17 @@ public final class JuniperConfiguration extends VendorConfiguration {
       org.batfish.datamodel.Zone newZone = toZone(zone);
       _c.getZones().put(zone.getName(), newZone);
       if (!zone.getAddressBook().getEntries().isEmpty()) {
-        _c.getIpSpaces().putAll(toIpSpaces(zone.getName(), zone.getAddressBook()));
+        Map<String, IpSpace> ipSpaces = toIpSpaces(zone.getName(), zone.getAddressBook());
+        _c.getIpSpaces().putAll(ipSpaces);
+        ipSpaces
+            .keySet()
+            .forEach(
+                ipSpaceName ->
+                    _c.getIpSpaceMetadata()
+                        .put(
+                            ipSpaceName,
+                            new IpSpaceMetadata(
+                                ipSpaceName, JuniperStructureType.ADDRESS_BOOK.getDescription())));
       }
     }
     // If there are zones, then assume we will need to support existing connection ACL
@@ -2389,6 +2414,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
   }
 
   private org.batfish.datamodel.Zone toZone(Zone zone) {
+    String zoneName = zone.getName();
 
     FirewallFilter inboundFilter = zone.getInboundFilter();
     IpAccessList inboundFilterList = null;
@@ -2408,7 +2434,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
       toHostFilterList = _c.getIpAccessLists().get(toHostFilter.getName());
     }
 
-    org.batfish.datamodel.Zone newZone = new org.batfish.datamodel.Zone(zone.getName());
+    org.batfish.datamodel.Zone newZone = new org.batfish.datamodel.Zone(zoneName);
     if (fromHostFilterList != null) {
       newZone.setFromHostFilterName(fromHostFilterList.getName());
     }
@@ -2440,7 +2466,7 @@ public final class JuniperConfiguration extends VendorConfiguration {
     for (Interface iface : zone.getInterfaces()) {
       String ifaceName = iface.getName();
       org.batfish.datamodel.Interface newIface = _c.getInterfaces().get(ifaceName);
-      newIface.setZone(newZone);
+      newIface.setZoneName(zoneName);
       FirewallFilter inboundInterfaceFilter = zone.getInboundInterfaceFilters().get(ifaceName);
       if (inboundInterfaceFilter != null) {
         newZone

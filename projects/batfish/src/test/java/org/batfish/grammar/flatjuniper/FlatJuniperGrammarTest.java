@@ -830,6 +830,10 @@ public class FlatJuniperGrammarTest {
     assertThat(
         c.getIpSpaces().keySet(),
         containsInAnyOrder(specificSpaceName, wildcardSpaceName, indirectSpaceName));
+    // And associated metadata
+    assertThat(
+        c.getIpSpaceMetadata().keySet(),
+        containsInAnyOrder(specificSpaceName, wildcardSpaceName, indirectSpaceName));
 
     IpSpace specificSpace = c.getIpSpaces().get(specificSpaceName);
     IpSpace wildcardSpace = c.getIpSpaces().get(wildcardSpaceName);
@@ -1064,7 +1068,8 @@ public class FlatJuniperGrammarTest {
     IpAccessList aclUntrustOut = c.getInterfaces().get(interfaceNameUntrust).getOutgoingFilter();
 
     // Should have a an IpSpace in the config corresponding to the trust zone's ADDR1 address
-    assertThat(c.getIpSpaces(), hasKey(equalTo("trust~ADDR1")));
+    final String ipSpaceName = "trust~ADDR1";
+    assertThat(c.getIpSpaces(), hasKey(equalTo(ipSpaceName)));
 
     // It should be the only IpSpace
     assertThat(c.getIpSpaces().keySet(), iterableWithSize(1));
@@ -1075,6 +1080,9 @@ public class FlatJuniperGrammarTest {
 
     // It should not contain the address that is not allowed
     assertThat(ipSpace, not(containsIp(new Ip(notAllowedAddr))));
+
+    // There should me metadata for this ipspace
+    assertThat(c.getIpSpaceMetadata(), hasKey(ipSpaceName));
 
     // Specifically allowed source address should be accepted
     assertThat(
@@ -1487,7 +1495,7 @@ public class FlatJuniperGrammarTest {
                 equalTo(
                     ImmutableList.of(
                         IpAccessListLine.builder()
-                            .setAction(LineAction.ACCEPT)
+                            .setAction(LineAction.PERMIT)
                             .setMatchCondition(
                                 new MatchHeaderSpace(
                                     HeaderSpace.builder()
@@ -1856,7 +1864,7 @@ public class FlatJuniperGrammarTest {
                 equalTo(
                     ImmutableList.of(
                         IpAccessListLine.builder()
-                            .setAction(LineAction.ACCEPT)
+                            .setAction(LineAction.PERMIT)
                             .setMatchCondition(
                                 new MatchHeaderSpace(
                                     HeaderSpace.builder()
@@ -2422,15 +2430,15 @@ public class FlatJuniperGrammarTest {
         RouteFilterListMatchers.hasLines(
             containsInAnyOrder(
                 new RouteFilterLine(
-                    LineAction.ACCEPT, Prefix.parse("1.2.0.0/16"), new SubRange(16, 16)),
+                    LineAction.PERMIT, Prefix.parse("1.2.0.0/16"), new SubRange(16, 16)),
                 new RouteFilterLine(
-                    LineAction.ACCEPT, Prefix.parse("1.2.0.0/16"), new SubRange(17, 32)),
+                    LineAction.PERMIT, Prefix.parse("1.2.0.0/16"), new SubRange(17, 32)),
                 new RouteFilterLine(
-                    LineAction.ACCEPT, Prefix.parse("1.7.0.0/16"), new SubRange(16, 16)),
+                    LineAction.PERMIT, Prefix.parse("1.7.0.0/16"), new SubRange(16, 16)),
                 new RouteFilterLine(
-                    LineAction.ACCEPT, Prefix.parse("1.7.0.0/17"), new SubRange(17, 17)),
+                    LineAction.PERMIT, Prefix.parse("1.7.0.0/17"), new SubRange(17, 17)),
                 new RouteFilterLine(
-                    LineAction.ACCEPT,
+                    LineAction.PERMIT,
                     new IpWildcard("1.0.0.0:0.255.0.255"),
                     new SubRange(16, 16)))));
   }

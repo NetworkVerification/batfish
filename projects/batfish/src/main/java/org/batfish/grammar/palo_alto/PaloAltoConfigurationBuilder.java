@@ -1,17 +1,26 @@
 package org.batfish.grammar.palo_alto;
 
 import static org.apache.commons.lang3.ObjectUtils.firstNonNull;
+import static org.batfish.representation.palo_alto.PaloAltoConfiguration.CATCHALL_APPLICATION_NAME;
+import static org.batfish.representation.palo_alto.PaloAltoConfiguration.CATCHALL_SERVICE_NAME;
+import static org.batfish.representation.palo_alto.PaloAltoConfiguration.CATCHALL_ZONE_NAME;
 import static org.batfish.representation.palo_alto.PaloAltoConfiguration.DEFAULT_VSYS_NAME;
 import static org.batfish.representation.palo_alto.PaloAltoConfiguration.SHARED_VSYS_NAME;
 import static org.batfish.representation.palo_alto.PaloAltoConfiguration.computeObjectName;
 import static org.batfish.representation.palo_alto.PaloAltoStructureType.INTERFACE;
+import static org.batfish.representation.palo_alto.PaloAltoStructureType.RULE;
 import static org.batfish.representation.palo_alto.PaloAltoStructureType.SERVICE_GROUP;
 import static org.batfish.representation.palo_alto.PaloAltoStructureType.SERVICE_OR_SERVICE_GROUP;
 import static org.batfish.representation.palo_alto.PaloAltoStructureType.ZONE;
+import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.RULEBASE_SERVICE;
+import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.RULE_FROM_ZONE;
+import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.RULE_SELF_REF;
+import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.RULE_TO_ZONE;
 import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.SERVICE_GROUP_MEMBER;
 import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.VIRTUAL_ROUTER_INTERFACE;
 import static org.batfish.representation.palo_alto.PaloAltoStructureUsage.ZONE_INTERFACE;
 
+import javax.annotation.Nullable;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.Token;
@@ -20,10 +29,15 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Warnings;
+import org.batfish.common.Warnings.ParseWarning;
 import org.batfish.datamodel.InterfaceAddress;
 import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.IpProtocol;
+import org.batfish.datamodel.IpSpace;
+import org.batfish.datamodel.LineAction;
 import org.batfish.datamodel.Prefix;
+import org.batfish.datamodel.UniverseIpSpace;
+import org.batfish.grammar.UnrecognizedLineToken;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Palo_alto_configurationContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.S_serviceContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.S_service_groupContext;
@@ -50,6 +64,17 @@ import org.batfish.grammar.palo_alto.PaloAltoParser.Snvrrt_destinationContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Snvrrt_interfaceContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Snvrrt_metricContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Snvrrt_nexthopContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Sr_securityContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Src_or_dst_list_itemContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_actionContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_applicationContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_descriptionContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_destinationContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_disabledContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_fromContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_serviceContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_sourceContext;
+import org.batfish.grammar.palo_alto.PaloAltoParser.Srs_toContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Sserv_descriptionContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Sserv_portContext;
 import org.batfish.grammar.palo_alto.PaloAltoParser.Sserv_protocolContext;
@@ -63,6 +88,7 @@ import org.batfish.grammar.palo_alto.PaloAltoParser.Variable_list_itemContext;
 import org.batfish.representation.palo_alto.Interface;
 import org.batfish.representation.palo_alto.PaloAltoConfiguration;
 import org.batfish.representation.palo_alto.PaloAltoStructureType;
+import org.batfish.representation.palo_alto.Rule;
 import org.batfish.representation.palo_alto.Service;
 import org.batfish.representation.palo_alto.ServiceGroup;
 import org.batfish.representation.palo_alto.ServiceOrServiceGroupReference;
@@ -83,6 +109,8 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
   private boolean _currentNtpServerPrimary;
 
   private Interface _currentParentInterface;
+
+  private Rule _currentRule;
 
   private Service _currentService;
 
@@ -106,19 +134,13 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
 
   private final String _text;
 
-  private final boolean _unrecognizedAsRedFlag;
-
   private final Warnings _w;
 
   public PaloAltoConfigurationBuilder(
-      PaloAltoCombinedParser parser,
-      String text,
-      Warnings warnings,
-      boolean unrecognizedAsRedFlag) {
+      PaloAltoCombinedParser parser, String text, Warnings warnings) {
     _configuration = new PaloAltoConfiguration();
     _parser = parser;
     _text = text;
-    _unrecognizedAsRedFlag = unrecognizedAsRedFlag;
     _w = warnings;
   }
 
@@ -163,6 +185,19 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
     return Integer.parseInt(t.getText());
   }
 
+  /** Convert source or destination list item into an appropriate IpSpace */
+  private @Nullable IpSpace toIpSpace(Src_or_dst_list_itemContext ctx) {
+    if (ctx.ANY() != null) {
+      return UniverseIpSpace.INSTANCE;
+    } else if (ctx.IP_ADDRESS() != null) {
+      return new Ip(ctx.IP_ADDRESS().getText()).toIpSpace();
+    } else if (ctx.IP_PREFIX() != null) {
+      return Prefix.parse(ctx.IP_PREFIX().getText()).toIpSpace();
+    }
+    _w.redFlag("Unhandled source/destination item conversion: " + getFullText(ctx));
+    return null;
+  }
+
   private String unquote(String text) {
     if (text.length() < 2) {
       return text;
@@ -188,9 +223,24 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
   }
 
   @Override
+  public void exitPalo_alto_configuration(Palo_alto_configurationContext ctx) {
+    // Assign the appropriate zone to each interface
+    for (Vsys vsys : _configuration.getVirtualSystems().values()) {
+      for (Zone zone : vsys.getZones().values()) {
+        for (String ifname : zone.getInterfaceNames()) {
+          Interface iface = _configuration.getInterfaces().get(ifname);
+          if (iface != null) {
+            iface.setZone(zone);
+          }
+        }
+      }
+    }
+  }
+
+  @Override
   public void enterS_zone(S_zoneContext ctx) {
     String name = ctx.name.getText();
-    _currentZone = _currentVsys.getZones().computeIfAbsent(name, Zone::new);
+    _currentZone = _currentVsys.getZones().computeIfAbsent(name, n -> new Zone(n, _currentVsys));
 
     // Use constructed zone name so same-named zone defs across vsys are unique
     String uniqueName = computeObjectName(_currentVsys.getName(), name);
@@ -353,6 +403,114 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
   }
 
   @Override
+  public void enterSr_security(Sr_securityContext ctx) {
+    String name = ctx.name.getText();
+    _currentRule = _currentVsys.getRules().computeIfAbsent(name, n -> new Rule(n, _currentVsys));
+
+    // Use constructed name so same-named defs across vsys are unique
+    String uniqueName = computeObjectName(_currentVsys.getName(), name);
+    defineStructure(RULE, uniqueName, ctx);
+    _configuration.referenceStructure(RULE, uniqueName, RULE_SELF_REF, getLine(ctx.name.start));
+  }
+
+  @Override
+  public void exitSr_security(Sr_securityContext ctx) {
+    _currentRule = null;
+  }
+
+  @Override
+  public void exitSrs_action(Srs_actionContext ctx) {
+    if (ctx.ALLOW() != null) {
+      _currentRule.setAction(LineAction.PERMIT);
+    } else {
+      _currentRule.setAction(LineAction.DENY);
+    }
+  }
+
+  @Override
+  public void exitSrs_application(Srs_applicationContext ctx) {
+    for (Variable_list_itemContext var : ctx.variable_list().variable_list_item()) {
+      String name = var.getText();
+      if (!name.equals(CATCHALL_APPLICATION_NAME)) {
+        _w.redFlag("Unhandled application: " + name);
+      }
+    }
+  }
+
+  @Override
+  public void exitSrs_description(Srs_descriptionContext ctx) {
+    _currentRule.setDescription(ctx.description.getText());
+  }
+
+  @Override
+  public void exitSrs_destination(Srs_destinationContext ctx) {
+    for (Src_or_dst_list_itemContext var : ctx.src_or_dst_list().src_or_dst_list_item()) {
+      IpSpace destinationIpSpace = toIpSpace(var);
+      if (destinationIpSpace != null) {
+        _currentRule.getDestination().add(destinationIpSpace);
+      }
+    }
+  }
+
+  @Override
+  public void exitSrs_disabled(Srs_disabledContext ctx) {
+    _currentRule.setDisabled(ctx.YES() != null);
+  }
+
+  @Override
+  public void exitSrs_from(Srs_fromContext ctx) {
+    for (Variable_list_itemContext var : ctx.variable_list().variable_list_item()) {
+      String zoneName = var.getText();
+      _currentRule.getFrom().add(zoneName);
+
+      if (!zoneName.equals(CATCHALL_ZONE_NAME)) {
+        // Use constructed object name so same-named refs across vsys are unique
+        String uniqueName = computeObjectName(_currentVsys.getName(), zoneName);
+        _configuration.referenceStructure(ZONE, uniqueName, RULE_FROM_ZONE, getLine(var.start));
+      }
+    }
+  }
+
+  @Override
+  public void exitSrs_service(Srs_serviceContext ctx) {
+    for (Variable_list_itemContext var : ctx.variable_list().variable_list_item()) {
+      String serviceName = var.getText();
+      _currentRule.getService().add(new ServiceOrServiceGroupReference(serviceName));
+
+      if (!serviceName.equals(CATCHALL_SERVICE_NAME)) {
+        // Use constructed object name so same-named refs across vsys are unique
+        String uniqueName = computeObjectName(_currentVsys.getName(), serviceName);
+        _configuration.referenceStructure(
+            SERVICE_OR_SERVICE_GROUP, uniqueName, RULEBASE_SERVICE, getLine(var.start));
+      }
+    }
+  }
+
+  @Override
+  public void exitSrs_source(Srs_sourceContext ctx) {
+    for (Src_or_dst_list_itemContext var : ctx.src_or_dst_list().src_or_dst_list_item()) {
+      IpSpace sourceIpSpace = toIpSpace(var);
+      if (sourceIpSpace != null) {
+        _currentRule.getSource().add(sourceIpSpace);
+      }
+    }
+  }
+
+  @Override
+  public void exitSrs_to(Srs_toContext ctx) {
+    for (Variable_list_itemContext var : ctx.variable_list().variable_list_item()) {
+      String zoneName = var.getText();
+      _currentRule.getTo().add(zoneName);
+
+      if (!zoneName.equals(CATCHALL_ZONE_NAME)) {
+        // Use constructed object name so same-named refs across vsys are unique
+        String uniqueName = computeObjectName(_currentVsys.getName(), zoneName);
+        _configuration.referenceStructure(ZONE, uniqueName, RULE_TO_ZONE, getLine(var.start));
+      }
+    }
+  }
+
+  @Override
   public void enterS_service(S_serviceContext ctx) {
     String name = ctx.name.getText();
     _currentService = _currentVsys.getServices().computeIfAbsent(name, Service::new);
@@ -492,12 +650,17 @@ public class PaloAltoConfigurationBuilder extends PaloAltoParserBaseListener {
     Token token = errorNode.getSymbol();
     String lineText = errorNode.getText().replace("\n", "").replace("\r", "").trim();
     int line = getLine(token);
-    String msg = String.format("Unrecognized Line: %d: %s", line, lineText);
-    if (_unrecognizedAsRedFlag) {
-      _w.redFlag(msg + " SUBSEQUENT LINES MAY NOT BE PROCESSED CORRECTLY");
-      _configuration.setUnrecognized(true);
+    _configuration.setUnrecognized(true);
+
+    if (token instanceof UnrecognizedLineToken) {
+      UnrecognizedLineToken unrecToken = (UnrecognizedLineToken) token;
+      _w.getParseWarnings()
+          .add(
+              new ParseWarning(
+                  line, lineText, unrecToken.getParserContext(), "This syntax is unrecognized"));
     } else {
-      _parser.getErrors().add(msg);
+      String msg = String.format("Unrecognized Line: %d: %s", line, lineText);
+      _w.redFlag(msg + " SUBSEQUENT LINES MAY NOT BE PROCESSED CORRECTLY");
     }
   }
 }

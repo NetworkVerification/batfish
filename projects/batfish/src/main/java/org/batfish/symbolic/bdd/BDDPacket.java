@@ -1,6 +1,8 @@
 package org.batfish.symbolic.bdd;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static org.batfish.symbolic.bdd.BDDInteger.makeFromIndex;
+import static org.batfish.symbolic.bdd.BDDUtils.isAssignment;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -155,8 +157,8 @@ public class BDDPacket {
 
     _bitNames = new HashMap<>();
 
-    _dstIp = allocateBDDInteger("dstIp", IP_LENGTH, true);
-    _srcIp = allocateBDDInteger("srcIp", IP_LENGTH, true);
+    _dstIp = allocateBDDInteger("dstIp", IP_LENGTH, false);
+    _srcIp = allocateBDDInteger("srcIp", IP_LENGTH, false);
     _dstPort = allocateBDDInteger("dstPort", PORT_LENGTH, false);
     _srcPort = allocateBDDInteger("srcPort", PORT_LENGTH, false);
     _ipProtocol = allocateBDDInteger("ipProtocol", IP_PROTOCOL_LENGTH, false);
@@ -281,10 +283,11 @@ public class BDDPacket {
    * @return A Flow.Builder for a representative of the set, if it's non-empty
    */
   public Optional<Flow.Builder> getFlow(BDD bdd) {
-    BDD satAssignment = bdd.fullSatOne();
-    if (satAssignment.isZero()) {
-      return Optional.empty();
-    }
+    return bdd.isZero() ? Optional.empty() : Optional.of(getFlowFromAssignment(bdd.fullSatOne()));
+  }
+
+  public Flow.Builder getFlowFromAssignment(BDD satAssignment) {
+    checkArgument(isAssignment(satAssignment));
 
     Flow.Builder fb = Flow.builder();
     fb.setDstIp(new Ip(_dstIp.satAssignmentToLong(satAssignment)));
@@ -307,7 +310,7 @@ public class BDDPacket {
     fb.setEcn(_ecn.satAssignmentToLong(satAssignment).intValue());
     fb.setFragmentOffset(_fragmentOffset.satAssignmentToLong(satAssignment).intValue());
     fb.setState(State.fromNum(_state.satAssignmentToLong(satAssignment).intValue()));
-    return Optional.of(fb);
+    return fb;
   }
 
   public BDDInteger getDscp() {

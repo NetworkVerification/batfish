@@ -253,6 +253,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import org.batfish.common.BatfishException;
 import org.batfish.common.RedFlagBatfishException;
 import org.batfish.common.Warnings;
+import org.batfish.common.Warnings.ParseWarning;
 import org.batfish.common.WellKnownCommunity;
 import org.batfish.common.util.CommonUtil;
 import org.batfish.datamodel.AaaAuthenticationLoginList;
@@ -369,6 +370,7 @@ import org.batfish.datamodel.vendor_family.cisco.SntpServer;
 import org.batfish.datamodel.vendor_family.cisco.SshSettings;
 import org.batfish.datamodel.vendor_family.cisco.User;
 import org.batfish.grammar.ControlPlaneExtractor;
+import org.batfish.grammar.UnrecognizedLineToken;
 import org.batfish.grammar.cisco.CiscoParser.Aaa_accountingContext;
 import org.batfish.grammar.cisco.CiscoParser.Aaa_accounting_commands_lineContext;
 import org.batfish.grammar.cisco.CiscoParser.Aaa_accounting_defaultContext;
@@ -555,6 +557,7 @@ import org.batfish.grammar.cisco.CiscoParser.If_ip_vrf_forwardingContext;
 import org.batfish.grammar.cisco.CiscoParser.If_ip_vrf_sitemapContext;
 import org.batfish.grammar.cisco.CiscoParser.If_isis_metricContext;
 import org.batfish.grammar.cisco.CiscoParser.If_mtuContext;
+import org.batfish.grammar.cisco.CiscoParser.If_nameifContext;
 import org.batfish.grammar.cisco.CiscoParser.If_rp_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.If_service_policyContext;
 import org.batfish.grammar.cisco.CiscoParser.If_service_policy_control_subscriberContext;
@@ -840,6 +843,7 @@ import org.batfish.grammar.cisco.CiscoParser.Route_map_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Route_policy_bgp_tailContext;
 import org.batfish.grammar.cisco.CiscoParser.Route_policy_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Route_reflector_client_bgp_tailContext;
+import org.batfish.grammar.cisco.CiscoParser.Route_tailContext;
 import org.batfish.grammar.cisco.CiscoParser.Router_bgp_stanzaContext;
 import org.batfish.grammar.cisco.CiscoParser.Router_id_bgp_tailContext;
 import org.batfish.grammar.cisco.CiscoParser.Router_isis_stanzaContext;
@@ -1445,8 +1449,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   private final String _text;
 
-  private final boolean _unrecognizedAsRedFlag;
-
   private final Warnings _w;
 
   private NetworkObject _currentNetworkObject;
@@ -1470,17 +1472,12 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   private String _currentTrackingGroup;
 
   public CiscoControlPlaneExtractor(
-      String text,
-      CiscoCombinedParser parser,
-      ConfigurationFormat format,
-      Warnings warnings,
-      boolean unrecognizedAsRedFlag) {
+      String text, CiscoCombinedParser parser, ConfigurationFormat format, Warnings warnings) {
     _text = text;
     _parser = parser;
     _format = format;
     _w = warnings;
     _peerGroupStack = new ArrayList<>();
-    _unrecognizedAsRedFlag = unrecognizedAsRedFlag;
     _currentBlockNeighborAddressFamilies = new HashSet<>();
   }
 
@@ -5561,6 +5558,29 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   }
 
   @Override
+  public void exitIf_nameif(If_nameifContext ctx) {
+    String alias = ctx.name.getText();
+    Map<String, Interface> ifaces = _configuration.getInterfaces();
+    if (ifaces.containsKey(alias)) {
+      _w.redFlag(String.format("Interface alias '%s' is already in use.", alias));
+    } else if (_currentInterfaces.size() > 1) {
+      _w.redFlag(String.format("Parse assertion failed for _currentInterfaces"));
+    } else {
+      // Define the alias as an interface to make ref tracking easier
+      defineStructure(INTERFACE, alias, ctx);
+      _configuration.referenceStructure(
+          INTERFACE, alias, INTERFACE_SELF_REF, ctx.getStart().getLine());
+      Interface iface = _currentInterfaces.get(0);
+      iface.setDeclaredNames(
+          new ImmutableSortedSet.Builder<String>(naturalOrder())
+              .addAll(iface.getDeclaredNames())
+              .add(alias)
+              .build());
+      iface.setAlias(alias);
+    }
+  }
+
+  @Override
   public void exitIf_service_policy(If_service_policyContext ctx) {
     // TODO: do something with this.
     String mapname = ctx.policy_map.getText();
@@ -7204,12 +7224,12 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   @Override
   public void exitPi_iosicd_drop(Pi_iosicd_dropContext ctx) {
-    _currentInspectPolicyMap.setClassDefaultAction(LineAction.REJECT);
+    _currentInspectPolicyMap.setClassDefaultAction(LineAction.DENY);
   }
 
   @Override
   public void exitPi_iosicd_pass(Pi_iosicd_passContext ctx) {
-    _currentInspectPolicyMap.setClassDefaultAction(LineAction.ACCEPT);
+    _currentInspectPolicyMap.setClassDefaultAction(LineAction.PERMIT);
   }
 
   @Override
@@ -7281,7 +7301,7 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
           maxLen = toInteger(ctx.eqpl);
         }
         SubRange lengthRange = new SubRange(minLen, maxLen);
-        PrefixListLine line = new PrefixListLine(LineAction.ACCEPT, prefix, lengthRange);
+        PrefixListLine line = new PrefixListLine(LineAction.PERMIT, prefix, lengthRange);
         pl.addLine(line);
       } else {
         Prefix6List pl = _configuration.getPrefix6Lists().computeIfAbsent(name, Prefix6List::new);
@@ -7306,7 +7326,7 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
           maxLen = toInteger(ctx.eqpl);
         }
         SubRange lengthRange = new SubRange(minLen, maxLen);
-        Prefix6ListLine line = new Prefix6ListLine(LineAction.ACCEPT, prefix6, lengthRange);
+        Prefix6ListLine line = new Prefix6ListLine(LineAction.PERMIT, prefix6, lengthRange);
         pl.addLine(line);
       }
     }
@@ -7917,6 +7937,31 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   @Override
   public void exitRoute_reflector_client_bgp_tail(Route_reflector_client_bgp_tailContext ctx) {
     _currentPeerGroup.setRouteReflectorClient(true);
+  }
+
+  @Override
+  public void exitRoute_tail(Route_tailContext ctx) {
+    String nextHopInterface = ctx.iface.getText();
+    Prefix prefix = new Prefix(toIp(ctx.destination), toIp(ctx.mask));
+    Ip nextHopIp = toIp(ctx.gateway);
+
+    int distance = DEFAULT_STATIC_ROUTE_DISTANCE;
+    if (ctx.distance != null) {
+      distance = toInteger(ctx.distance);
+    }
+
+    Integer track = null;
+    if (ctx.track != null) {
+      track = toInteger(ctx.track);
+    }
+
+    if (ctx.TUNNELED() != null) {
+      _w.redFlag("Interface default tunnel gateway option not yet supported.");
+    }
+
+    StaticRoute route =
+        new StaticRoute(prefix, nextHopIp, nextHopInterface, distance, null, track, false);
+    currentVrf().getStaticRoutes().add(route);
   }
 
   @Override
@@ -9314,18 +9359,32 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   }
 
   private Integer toIcmpType(Icmp_object_typeContext ctx) {
-    if (ctx.ECHO() != null) {
+    if (ctx.ALTERNATE_ADDRESS() != null) {
+      return IcmpType.ALTERNATE_ADDRESS;
+    } else if (ctx.CONVERSION_ERROR() != null) {
+      return IcmpType.CONVERSION_ERROR;
+    } else if (ctx.ECHO() != null) {
       return IcmpType.ECHO_REQUEST;
     } else if (ctx.ECHO_REPLY() != null) {
       return IcmpType.ECHO_REPLY;
+    } else if (ctx.MOBILE_REDIRECT() != null) {
+      return IcmpType.MOBILE_REDIRECT;
     } else if (ctx.PARAMETER_PROBLEM() != null) {
       return IcmpType.PARAMETER_PROBLEM;
     } else if (ctx.REDIRECT() != null) {
       return IcmpType.REDIRECT_MESSAGE;
+    } else if (ctx.ROUTER_ADVERTISEMENT() != null) {
+      return IcmpType.ROUTER_ADVERTISEMENT;
+    } else if (ctx.ROUTER_SOLICITATION() != null) {
+      return IcmpType.ROUTER_SOLICITATION;
     } else if (ctx.SOURCE_QUENCH() != null) {
       return IcmpType.SOURCE_QUENCH;
     } else if (ctx.TIME_EXCEEDED() != null) {
       return IcmpType.TIME_EXCEEDED;
+    } else if (ctx.TIMESTAMP_REPLY() != null) {
+      return IcmpType.TIMESTAMP_REPLY;
+    } else if (ctx.TIMESTAMP_REQUEST() != null) {
+      return IcmpType.TIMESTAMP_REQUEST;
     } else if (ctx.TRACEROUTE() != null) {
       return IcmpType.TRACEROUTE;
     } else if (ctx.UNREACHABLE() != null) {
@@ -9448,9 +9507,9 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   private LineAction toLineAction(Access_list_actionContext ctx) {
     if (ctx.PERMIT() != null) {
-      return LineAction.ACCEPT;
+      return LineAction.PERMIT;
     } else if (ctx.DENY() != null) {
-      return LineAction.REJECT;
+      return LineAction.DENY;
     } else {
       throw convError(LineAction.class, ctx);
     }
@@ -10342,9 +10401,6 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
 
   private <T, U extends T> T convProblem(
       Class<T> returnType, ParserRuleContext ctx, U defaultReturnValue) {
-    if (!_unrecognizedAsRedFlag) {
-      throw convError(returnType, ctx);
-    }
     _w.redFlag(convErrorMessage(returnType, ctx));
     return defaultReturnValue;
   }
@@ -10427,14 +10483,19 @@ public class CiscoControlPlaneExtractor extends CiscoParserBaseListener
   @Override
   public void visitErrorNode(ErrorNode errorNode) {
     Token token = errorNode.getSymbol();
-    String lineText = errorNode.getText().replace("\n", "").replace("\r", "").trim();
     int line = token.getLine();
-    String msg = String.format("Unrecognized Line: %d: %s", line, lineText);
-    if (_unrecognizedAsRedFlag) {
-      _w.redFlag(msg + " SUBSEQUENT LINES MAY NOT BE PROCESSED CORRECTLY");
-      _configuration.setUnrecognized(true);
+    String lineText = errorNode.getText().replace("\n", "").replace("\r", "").trim();
+    _configuration.setUnrecognized(true);
+
+    if (token instanceof UnrecognizedLineToken) {
+      UnrecognizedLineToken unrecToken = (UnrecognizedLineToken) token;
+      _w.getParseWarnings()
+          .add(
+              new ParseWarning(
+                  line, lineText, unrecToken.getParserContext(), "This syntax is unrecognized"));
     } else {
-      _parser.getErrors().add(msg);
+      String msg = String.format("Unrecognized Line: %d: %s", line, lineText);
+      _w.redFlag(msg + " SUBSEQUENT LINES MAY NOT BE PROCESSED CORRECTLY");
     }
   }
 }

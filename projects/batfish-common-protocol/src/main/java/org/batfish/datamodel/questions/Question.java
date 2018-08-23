@@ -36,11 +36,15 @@ import org.codehaus.jettison.json.JSONObject;
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, property = "class")
 public abstract class Question implements IQuestion {
 
+  /** When diffing tables, whether to ignore keys present in only one table by default */
+  private static final boolean DEFAULT_INCLUDE_ONE_TABLE_KEYS = true;
+
   public static class InstanceData {
 
     public static class Variable {
 
       public enum Type {
+        ANSWER_ELEMENT("answerElement", true),
         BGP_PROPERTY_SPEC("bgpPropertySpec", true),
         BOOLEAN("boolean", false),
         COMPARATOR("comparator", true),
@@ -285,13 +289,13 @@ public abstract class Question implements IQuestion {
 
   private List<Exclusion> _exclusions;
 
-  /** When diffing tables, whether to ignore keys present in only one table */
   private boolean _includeOneTableKeys;
 
   private InstanceData _instance;
 
   public Question() {
     _differential = false;
+    _includeOneTableKeys = DEFAULT_INCLUDE_ONE_TABLE_KEYS;
   }
 
   public Question configureTemplate(String exceptions, String assertion) {
