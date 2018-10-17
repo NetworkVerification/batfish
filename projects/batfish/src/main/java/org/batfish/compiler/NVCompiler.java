@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.datamodel.Configuration;
@@ -14,6 +16,64 @@ import org.batfish.datamodel.ospf.OspfProcess;
 import org.batfish.symbolic.Graph;
 import org.batfish.symbolic.GraphEdge;
 import org.batfish.symbolic.Protocol;
+import org.glassfish.grizzly.streams.StreamInput;
+
+class InitialAttribute {
+  private Boolean _conn;
+  private Boolean _static;
+  private Optional<Long> _areaId;
+  private Boolean _bgp;
+
+  public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp){
+    _conn = conn;
+    _static = stat;
+    _areaId = areaId;
+    _bgp = bgp;
+  }
+
+  public String compileAttr() {
+    StringBuilder sb = new StringBuilder();
+    String c = this._conn ? "Some 0" : "None";
+    String s = this._static ? "Some 1" : "None";
+    String o = "None";
+    if (this._areaId.isPresent()) {
+      o = "Some (110, 0, ospfIntraArea, " + _areaId.get() + ")";
+    }
+    String b = _bgp ? "Some (20, 100, 0, 80, {})" : "None";
+    sb.append("       let c = ")
+        .append(c)
+        .append(" in\n")
+        .append("       let s = ")
+        .append(s)
+        .append(" in\n")
+        .append("       let o = ")
+        .append(o)
+        .append(" in\n")
+        .append("       let b = ")
+        .append(b)
+        .append(" in\n");
+    sb.append("       let fib = best c s o b in\n")
+        .append("        (c,s,o,b,fib)\n");
+    return sb.toString();
+  }
+
+  @Override public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    InitialAttribute that = (InitialAttribute) o;
+    return Objects.equals(_conn, that._conn) && Objects.equals(_static, that._static)
+        && Objects.equals(_areaId, that._areaId) && Objects.equals(_bgp, that._bgp);
+  }
+
+  @Override public int hashCode() {
+
+    return Objects.hash(_conn, _static, _areaId, _bgp);
+  }
+}
 
 public class NVCompiler {
 
@@ -30,7 +90,7 @@ public class NVCompiler {
     String staticType = "option[int]"; // ad
     String bgpType = "option[(int,int,int,int,set[int])]"; // (ad, lp, cost, med, comms)
     String bestType = "option[int]"; // proto
-    sb.append("type attribute = dict[(int,int),(")
+    sb.append("type attribute = (")
         .append(connType)
         .append(",")
         .append(staticType)
@@ -40,7 +100,10 @@ public class NVCompiler {
         .append(bgpType)
         .append(",")
         .append(bestType)
-        .append(")]\n\n");
+        .append(")\n\n");
+
+    // symbolic destination variable
+    sb.append("symbolic d : (int, int)\n\n");
 
     // assign each node to a unique number starting from 0
     Map<String, Integer> nodeAssignment = new HashMap<>();
@@ -127,10 +190,9 @@ public class NVCompiler {
         .append("  let b = pickOption betterBgp bx by in\n")
         .append("  (c,s,o,b, best c s o b)\n\n");
 
-    sb.append("let merge node x y = combine mergeValues x y\n\n");
+    sb.append("let merge node x y = mergeValues x y\n\n");
 
     sb.append("let init node =\n")
-        .append("  let d = createDict (None,None,None,None,None) in\n")
         .append("  match node with\n");
 
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
@@ -168,38 +230,55 @@ public class NVCompiler {
         }
       }
 
+      // Building init function
+      Map<InitialAttribute, Set<Prefix>> attributePrefixMap = new HashMap<>();
+
       for (Prefix prefix : allPrefixes) {
-        String c = connPrefixes.contains(prefix) ? "Some 0" : "None";
-        String s = staticPrefixes.contains(prefix) ? "Some 1" : "None";
-        String o = "None";
+        Boolean c = connPrefixes.contains(prefix);
+        Boolean s = staticPrefixes.contains(prefix);
+        Optional<Long> o = Optional.empty();
         if (ospfPrefixes.contains(prefix)) {
-          Long areaId = ospfAreaIds.get(prefix);
-          assert (areaId != null);
-          o = "Some (110, 0, ospfIntraArea, " + areaId + ")";
+          o = Optional.of(ospfAreaIds.get(prefix));
         }
-        String b = bgpPrefixes.contains(prefix) ? "Some (20, 100, 0, 80, {})" : "None";
-        sb.append("      let c = ")
-            .append(c)
-            .append(" in\n")
-            .append("      let s = ")
-            .append(s)
-            .append(" in\n")
-            .append("      let o = ")
-            .append(o)
-            .append(" in\n")
-            .append("      let b = ")
-            .append(b)
-            .append(" in\n");
-        sb.append("      let fib = best c s o b in\n")
-            .append("      let d = d[(")
-            .append(prefix.getStartIp().asLong())
-            .append(",")
-            .append(prefix.getPrefixLength())
-            .append(") := (c,s,o,b,fib)] in\n");
+        Boolean b = bgpPrefixes.contains(prefix);
+
+        InitialAttribute a = new InitialAttribute(c,s,o,b);
+        Set<Prefix> prefixS = new HashSet<Prefix>();
+        prefixS.add(prefix);
+        if (attributePrefixMap.containsKey(a)) {
+          prefixS.addAll(attributePrefixMap.get(a));
+          attributePrefixMap.replace(a, prefixS);
+        }
+        else
+        {
+          attributePrefixMap.put(a, prefixS);
+        }
       }
-      sb.append("      d\n");
+
+      sb.append("     ");
+      for (Entry<InitialAttribute, Set<Prefix>> attrpre: attributePrefixMap.entrySet())
+      {
+       String initAttr = attrpre.getKey().compileAttr();
+       Boolean first = true;
+       sb.append("if ");
+       for (Prefix pre : attrpre.getValue()) {
+         if (!first) {
+           sb.append(" || ");
+         }
+         sb.append("(d = (")
+             .append(pre.getStartIp().asLong())
+             .append(", ")
+             .append(pre.getPrefixLength())
+             .append("))");
+         first = false;
+       }
+       sb.append(" then\n")
+       .append(initAttr)
+       .append("     else ");
+      }
+      sb.append("(None,None,None,None,None)\n");
     }
-    sb.append("  | _ -> d\n");
+    sb.append("  | _ -> (None,None,None,None,None)\n\n");
 
     sb.append(" let transferOspf edge o =\n")
         .append("   match o with\n")
@@ -252,7 +331,7 @@ public class NVCompiler {
         .append("  let b = transferBgp edge b in\n")
         .append("  (None, None, o, b, fib)\n\n");
 
-    sb.append("let trans edge x =\n").append("  map (transferRoute edge) x\n\n");
+    sb.append("let trans edge x =\n").append("   transferRoute edge x\n\n");
 
     return sb.toString();
   }
