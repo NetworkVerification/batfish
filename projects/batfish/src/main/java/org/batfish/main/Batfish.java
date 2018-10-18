@@ -4417,6 +4417,12 @@ public class Batfish extends PluginConsumer implements IBatfish {
   }
 
   @Override
+  public AnswerElement smtEcmpWidth(HeaderLocationQuestion q, int width) {
+    PropertyChecker p = new PropertyChecker(new BDDPacket(), this, _settings);
+    return p.checkEcmpWidth(q, width);
+  }
+
+  @Override
   public AnswerElement smtEqualLength(HeaderLocationQuestion q) {
     PropertyChecker p = new PropertyChecker(new BDDPacket(), this, _settings);
     return p.checkEqualLength(q);

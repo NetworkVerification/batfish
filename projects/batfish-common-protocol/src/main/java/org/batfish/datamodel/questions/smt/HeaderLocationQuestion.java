@@ -12,6 +12,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
 
   private static final String DEFAULT_INGRESS_NODE_REGEX = ".*";
 
+  private static final String DEFAULT_ECMP_WIDTH_NODE_REGEX = ".*";
+
   private static final String DEFAULT_FAIL_NODE1_REGEX = ".*";
 
   private static final String DEFAULT_FAIL_NODE2_REGEX = ".*";
@@ -21,6 +23,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   private static final String DEFAULT_NOT_FINAL_IFACE_REGEX = "";
 
   private static final String DEFAULT_NOT_INGRESS_NODE_REGEX = "";
+
+  private static final String DEFAULT_NOT_ECMP_WIDTH_NODE_REGEX = "";
 
   private static final String DEFAULT_NOT_FAIL_NODE1_REGEX = "";
 
@@ -38,6 +42,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
 
   private static final String PROP_INGRESS_NODE_REGEX = "ingressNodeRegex";
 
+  private static final String PROP_ECMP_WIDTH_NODE_REGEX = "ecmpWidthNodeRegex";
+
   private static final String FAIL_NODE1_REGEX_VAR = "failNode1Regex";
 
   private static final String FAIL_NODE2_REGEX_VAR = "failNode2Regex";
@@ -47,6 +53,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   private static final String PROP_NOT_FINAL_IFACE_REGEX = "notFinalIfaceRegex";
 
   private static final String PROP_NOT_INGRESS_NODE_REGEX = "notIngressNodeRegex";
+
+  private static final String PROP_NOT_ECMP_WIDTH_NODE_REGEX = "notEcmpWidthNodeRegex";
 
   private static final String NOT_FAIL_NODE1_REGEX_VAR = "notFailNode1Regex";
 
@@ -64,6 +72,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
 
   private String _ingressNodeRegex;
 
+  private String _ecmpWidthNodeRegex;
+
   private String _failNode1Regex;
 
   private String _failNode2Regex;
@@ -75,6 +85,8 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   private String _notFinalIfaceRegex;
 
   private String _notIngressNodeRegex;
+
+  private String _notEcmpWidthNodeRegex;
 
   private String _notFailNode1Regex;
 
@@ -88,12 +100,14 @@ public class HeaderLocationQuestion extends HeaderQuestion {
     _finalNodeRegex = DEFAULT_FINAL_NODE_REGEX;
     _finalIfaceRegex = DEFAULT_FINAL_IFACE_REGEX;
     _ingressNodeRegex = DEFAULT_INGRESS_NODE_REGEX;
+    _ecmpWidthNodeRegex = DEFAULT_ECMP_WIDTH_NODE_REGEX;
     _failNode1Regex = DEFAULT_FAIL_NODE1_REGEX;
     _failNode2Regex = DEFAULT_FAIL_NODE2_REGEX;
     _failNodeRegex = DEFAULT_FAIL_NODE_REGEX;
     _notFinalNodeRegex = DEFAULT_NOT_FINAL_NODE_REGEX;
     _notFinalIfaceRegex = DEFAULT_NOT_FINAL_IFACE_REGEX;
     _notIngressNodeRegex = DEFAULT_NOT_INGRESS_NODE_REGEX;
+    _notEcmpWidthNodeRegex = DEFAULT_NOT_ECMP_WIDTH_NODE_REGEX;
     _notFailNode1Regex = DEFAULT_NOT_FAIL_NODE1_REGEX;
     _notFailNode2Regex = DEFAULT_NOT_FAIL_NODE2_REGEX;
     _notFailNodeRegex = DEFAULT_NOT_FAIL_NODE_REGEX;
@@ -105,12 +119,14 @@ public class HeaderLocationQuestion extends HeaderQuestion {
     this._finalNodeRegex = other._finalNodeRegex;
     this._finalIfaceRegex = other._finalIfaceRegex;
     this._ingressNodeRegex = other._ingressNodeRegex;
+    this._ecmpWidthNodeRegex = other._ecmpWidthNodeRegex;
     this._failNode1Regex = other._failNode1Regex;
     this._failNode2Regex = other._failNode2Regex;
     this._failNodeRegex = other._failNodeRegex;
     this._notFinalNodeRegex = other._notFinalNodeRegex;
     this._notFinalIfaceRegex = other._notFinalIfaceRegex;
     this._notIngressNodeRegex = other._notIngressNodeRegex;
+    this._notEcmpWidthNodeRegex = other._notEcmpWidthNodeRegex;
     this._notFailNode1Regex = other._notFailNode1Regex;
     this._notFailNode2Regex = other._notFailNode2Regex;
     this._notFailNodeRegex = other._notFailNodeRegex;
@@ -134,6 +150,11 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   @JsonProperty(PROP_INGRESS_NODE_REGEX)
   public String getIngressNodeRegex() {
     return _ingressNodeRegex;
+  }
+
+  @JsonProperty(PROP_ECMP_WIDTH_NODE_REGEX)
+  public String getEcmpWidthNodeRegex() {
+    return _ecmpWidthNodeRegex;
   }
 
   @JsonProperty(FAIL_NODE1_REGEX_VAR)
@@ -164,6 +185,11 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   @JsonProperty(PROP_NOT_INGRESS_NODE_REGEX)
   public String getNotIngressNodeRegex() {
     return _notIngressNodeRegex;
+  }
+
+  @JsonProperty(PROP_NOT_ECMP_WIDTH_NODE_REGEX)
+  public String getNotEcmpWidthNodeRegex() {
+    return _notEcmpWidthNodeRegex;
   }
 
   @Override
@@ -232,6 +258,10 @@ public class HeaderLocationQuestion extends HeaderQuestion {
     _finalIfaceRegex = regex;
   }
 
+  @JsonProperty(PROP_ECMP_WIDTH_NODE_REGEX)
+  public void setEcmpWidthNodeRegex(String regex) { _ecmpWidthNodeRegex = regex;
+  }
+
   @JsonProperty(PROP_INGRESS_NODE_REGEX)
   public void setIngressNodeRegex(String regex) {
     _ingressNodeRegex = regex;
@@ -265,6 +295,10 @@ public class HeaderLocationQuestion extends HeaderQuestion {
   @JsonProperty(PROP_NOT_INGRESS_NODE_REGEX)
   public void setNotIngressNodeRegex(String notIngressNodeRegex) {
     _notIngressNodeRegex = notIngressNodeRegex;
+  }
+
+  @JsonProperty(PROP_ECMP_WIDTH_NODE_REGEX)
+  public void setNotEcmpWidthNodeRegex(String regex) { _notEcmpWidthNodeRegex = regex;
   }
 
   @JsonProperty(NOT_FAIL_NODE1_REGEX_VAR)

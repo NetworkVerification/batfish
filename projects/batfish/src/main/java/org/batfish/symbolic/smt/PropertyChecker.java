@@ -158,6 +158,12 @@ public class PropertyChecker {
     return new HashSet<>(PatternUtils.findMatchingNodes(g, p1, p2));
   }
 
+  private Set<String> ecmpWidthNodeSet(Graph g, HeaderLocationQuestion q) {
+    Pattern p1 = Pattern.compile(q.getEcmpWidthNodeRegex());
+    Pattern p2 = Pattern.compile(q.getNotEcmpWidthNodeRegex());
+    return new HashSet<>(PatternUtils.findMatchingNodes(g, p1, p2));
+  }
+
   private BoolExpr relateEnvironments(Encoder enc1, Encoder enc2) {
     // create a map for enc2 to lookup a related environment variable from enc
     Table2<GraphEdge, EdgeType, SymbolicRoute> relatedEnv = new Table2<>();
@@ -608,6 +614,36 @@ public class PropertyChecker {
           return boundVars;
         },
         (vp) -> new SmtOneAnswerElement(vp.getResult()));
+  }
+
+  /*
+   * Compute whether for a collection of routers there are at least k best hops based on the
+   * network forwarding decision.
+   */
+  public AnswerElement checkEcmpWidth(HeaderLocationQuestion q, int k) {
+
+    Graph graph = new Graph(_batfish);
+    Encoder enc = new Encoder(_settings, graph, q);
+    enc.computeEncoding();
+    EncoderSlice slice = enc.getMainSlice();
+
+    ArithExpr threshold = enc.mkInt(k);
+    BoolExpr acc = enc.mkTrue();
+
+    for (Map.Entry<String, Configuration> entry : graph.getConfigurations().entrySet()) {
+      String router = entry.getKey();
+      ArithExpr width = enc.mkInt(0);
+      for (GraphEdge edge : graph.getEdgeMap().get(router)) {
+        BoolExpr dataFwd = slice.getForwardsAcross().get(router, edge);
+        ArithExpr dataFwdArith = enc.mkIf(dataFwd, enc.mkInt(1), enc.mkInt(0));
+        width = enc.mkSum(dataFwdArith, width);
+      }
+      acc = enc.mkAnd(acc, enc.mkGe(width, threshold));
+    }
+
+    enc.add(enc.mkNot(acc));
+    VerificationResult res = enc.verify().getFirst();
+    return new SmtOneAnswerElement(res);
   }
 
   /*

@@ -376,6 +376,11 @@ public class IBatfishTestAdapter implements IBatfish {
   }
 
   @Override
+  public AnswerElement smtEcmpWidth(HeaderLocationQuestion q, int width) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public AnswerElement smtEqualLength(HeaderLocationQuestion q) {
     throw new UnsupportedOperationException();
   }
