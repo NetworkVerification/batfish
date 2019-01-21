@@ -168,7 +168,7 @@ public class RoutingPolicy implements Serializable {
   }
 
   /** Returns the list of routing-policy statements to execute */
-  @JsonProperty(PROP_STATEMENTS)
+  @Nullable @JsonProperty(PROP_STATEMENTS)
   public List<Statement> getStatements() {
     return _statements;
   }

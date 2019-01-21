@@ -1,22 +1,28 @@
 package org.batfish.compiler;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.ospf.OspfArea;
 import org.batfish.datamodel.ospf.OspfProcess;
+import org.batfish.datamodel.routing_policy.RoutingPolicy;
+import org.batfish.datamodel.routing_policy.statement.Statement;
+import org.batfish.specifier.NullLocationSpecifier;
 import org.batfish.symbolic.Graph;
 import org.batfish.symbolic.GraphEdge;
 import org.batfish.symbolic.Protocol;
-import org.glassfish.grizzly.streams.StreamInput;
 
 class InitialAttribute {
   private Boolean _conn;
@@ -24,7 +30,7 @@ class InitialAttribute {
   private Optional<Long> _areaId;
   private Boolean _bgp;
 
-  public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp){
+  public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp) {
     _conn = conn;
     _static = stat;
     _areaId = areaId;
@@ -40,6 +46,7 @@ class InitialAttribute {
       o = "Some (110, 0, ospfIntraArea, " + _areaId.get() + ")";
     }
     String b = _bgp ? "Some (20, 100, 0, 80, {})" : "None";
+    // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
     sb.append("       let c = ")
         .append(c)
         .append(" in\n")
@@ -52,12 +59,12 @@ class InitialAttribute {
         .append("       let b = ")
         .append(b)
         .append(" in\n");
-    sb.append("       let fib = best c s o b in\n")
-        .append("        (c,s,o,b,fib)\n");
+    sb.append("       let fib = best c s o b in\n").append("        (c,s,o,b,fib)\n");
     return sb.toString();
   }
 
-  @Override public boolean equals(Object o) {
+  @Override
+  public boolean equals(Object o) {
     if (this == o) {
       return true;
     }
@@ -65,11 +72,14 @@ class InitialAttribute {
       return false;
     }
     InitialAttribute that = (InitialAttribute) o;
-    return Objects.equals(_conn, that._conn) && Objects.equals(_static, that._static)
-        && Objects.equals(_areaId, that._areaId) && Objects.equals(_bgp, that._bgp);
+    return Objects.equals(_conn, that._conn)
+        && Objects.equals(_static, that._static)
+        && Objects.equals(_areaId, that._areaId)
+        && Objects.equals(_bgp, that._bgp);
   }
 
-  @Override public int hashCode() {
+  @Override
+  public int hashCode() {
 
     return Objects.hash(_conn, _static, _areaId, _bgp);
   }
@@ -89,6 +99,7 @@ public class NVCompiler {
     String connType = "option[int]"; // ad
     String staticType = "option[int]"; // ad
     String bgpType = "option[(int,int,int,int,set[int])]"; // (ad, lp, cost, med, comms)
+    // String bgpType = "option[(int,int,int,int)]"; // (ad, lp, cost, med, comms)
     String bestType = "option[int]"; // proto
     sb.append("type attribute = (")
         .append(connType)
@@ -114,14 +125,19 @@ public class NVCompiler {
     }
 
     Map<GraphEdge, String> edgeMap = new HashMap<>();
+    Set<String> edgeSet = new HashSet<>();
 
     sb.append("let edges = {\n");
     for (GraphEdge edge : _graph.getAllEdges()) {
       Integer node1 = nodeAssignment.get(edge.getRouter());
       Integer node2 = nodeAssignment.get(edge.getPeer());
+      String edgeString = "(" + node1 + "," + node2 + ")";
       if (node2 != null) {
-        edgeMap.put(edge, "(" + node1 + "," + node2 + ")");
-        sb.append("  ").append(node1).append("-").append(node2).append(";\n");
+        edgeMap.put(edge, edgeString);
+        if (!edgeSet.contains(edgeString)) {
+          edgeSet.add(edgeString);
+          sb.append("  ").append(node1).append("-").append(node2).append(";\n");
+        }
       }
     }
     sb.append("}\n\n");
@@ -137,6 +153,11 @@ public class NVCompiler {
         .append("let protoStatic = 1\n")
         .append("let protoOspf = 2\n")
         .append("let protoBgp = 3\n\n");
+
+    sb.append("let isProtocol fib x =\n")
+        .append("  match fib with\n")
+        .append("  | None -> false\n")
+        .append("  | Some y -> x = y\n\n");
 
     sb.append("let min x y = if x < y then x else y\n\n");
     sb.append("let max x y = if x < y then y else x\n\n");
@@ -156,6 +177,8 @@ public class NVCompiler {
         .append("  else if cost1 <= cost2 then o1 else o2\n\n");
 
     sb.append("let betterBgp o1 o2 =\n")
+        // .append("  let (_,lp1,cost1,med1) = o1 in\n")
+        // .append("  let (_,lp2,cost2,med2) = o2 in\n")
         .append("  let (_,lp1,cost1,med1,_) = o1 in\n")
         .append("  let (_,lp2,cost2,med2,_) = o2 in\n")
         .append("  if lp1 > lp2 then o1\n")
@@ -177,6 +200,7 @@ public class NVCompiler {
         .append("  | _ -> \n")
         .append("      let o = match o with | None -> None | Some (ad,_,_,_) -> Some ad in\n")
         .append("      let b = match b with | None -> None | Some (ad,_,_,_,_) -> Some ad in\n")
+        // .append("      let b = match b with | None -> None | Some (ad,_,_,_) -> Some ad in\n")
         .append("      let (x,p1) = if betterEqOption c s then (c,0) else (s,1) in\n")
         .append("      let (y,p2) = if betterEqOption o b then (o,2) else (b,3) in\n")
         .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
@@ -192,8 +216,7 @@ public class NVCompiler {
 
     sb.append("let merge node x y = mergeValues x y\n\n");
 
-    sb.append("let init node =\n")
-        .append("  match node with\n");
+    sb.append("let init node =\n").append("  match node with\n");
 
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
@@ -242,39 +265,34 @@ public class NVCompiler {
         }
         Boolean b = bgpPrefixes.contains(prefix);
 
-        InitialAttribute a = new InitialAttribute(c,s,o,b);
+        InitialAttribute a = new InitialAttribute(c, s, o, b);
         Set<Prefix> prefixS = new HashSet<Prefix>();
         prefixS.add(prefix);
         if (attributePrefixMap.containsKey(a)) {
           prefixS.addAll(attributePrefixMap.get(a));
           attributePrefixMap.replace(a, prefixS);
-        }
-        else
-        {
+        } else {
           attributePrefixMap.put(a, prefixS);
         }
       }
 
       sb.append("     ");
-      for (Entry<InitialAttribute, Set<Prefix>> attrpre: attributePrefixMap.entrySet())
-      {
-       String initAttr = attrpre.getKey().compileAttr();
-       Boolean first = true;
-       sb.append("if ");
-       for (Prefix pre : attrpre.getValue()) {
-         if (!first) {
-           sb.append(" || ");
-         }
-         sb.append("(d = (")
-             .append(pre.getStartIp().asLong())
-             .append(", ")
-             .append(pre.getPrefixLength())
-             .append("))");
-         first = false;
-       }
-       sb.append(" then\n")
-       .append(initAttr)
-       .append("     else ");
+      for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
+        String initAttr = attrpre.getKey().compileAttr();
+        Boolean first = true;
+        sb.append("if ");
+        for (Prefix pre : attrpre.getValue()) {
+          if (!first) {
+            sb.append(" || ");
+          }
+          sb.append("(d = (")
+              .append(pre.getStartIp().asLong())
+              .append(", ")
+              .append(pre.getPrefixLength())
+              .append("))");
+          first = false;
+        }
+        sb.append(" then\n").append(initAttr).append("     else ");
       }
       sb.append("(None,None,None,None,None)\n");
     }
@@ -291,44 +309,66 @@ public class NVCompiler {
         Interface iface = edge.getStart();
         Integer cost = iface.getOspfCost() == null ? 1 : iface.getOspfCost();
         Long areaId = iface.getOspfAreaName();
-        sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
-          sb.append("None\n");
-        } else {
-          sb.append("(ad, cost + ")
+        //        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
+        //        sb.append("None\n");
+        // }
+        if (_graph.isInterfaceActive(Protocol.OSPF, iface)) {
+          sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+          sb.append("Some (ad, cost + ")
               .append(cost)
               .append(", if !(areaId = ")
               .append(areaId)
               .append(") then ospfInterArea else areaType, ")
               .append(areaId)
-              .append("\n");
+              .append(")\n");
         }
       }
     }
-    sb.append(")\n");
+    sb.append("   | _ -> None\n)\n");
 
-    sb.append(" let transferBgp edge b =\n")
-        .append("   match b with\n")
-        .append("   | None -> None\n")
-        .append("   | Some (ad,lp,cost,med,comms) -> (\n")
+    sb.append(" let transferBgp edge x =\n")
+        .append("  let (_,_,_,_,fib) = x in\n")
+        .append("  let (prefix, prefixLen) = d in\n")
+        .append("  let b = match fib with\n")
+        .append("           | None -> None\n")
+        .append("           | Some 0 -> Some (0,100,0,80,{})\n")
+        .append("           | Some 1 -> Some (1,100,0,80,{})\n")
+        .append("           | Some 2 -> Some (110,100,0,80,{})\n")
+        .append("           | Some 3 -> b\n")
+        .append("  in\n")
+        .append("  match b with\n")
+        .append("  | None -> None\n")
+        .append("  | Some (ad,lp,cost,med,comms) -> (\n")
         .append("   match edge with\n");
-    for (GraphEdge edge : _graph.getAllEdges()) {
-      if (edge.getPeer() != null) {
-        Interface iface = edge.getStart();
-        sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-        if (!_graph.isInterfaceActive(Protocol.BGP, iface) || edge.getPeer() == null) {
-          sb.append("None\n");
-        } else {
-          sb.append("Some (ad, lp, cost + 1, med, comms)\n");
+    for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
+      String router = entry.getKey();
+      Configuration config = entry.getValue();
+      for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
+        if (edge.getPeer() != null) {
+          Interface iface = edge.getStart();
+          if (_graph.isInterfaceActive(Protocol.BGP, iface)) {
+            sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+            RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
+            List<Statement> statements = new ArrayList<>();
+            if ((policy != null) && (policy.getStatements() != null)) {
+              statements = policy.getStatements();
+            } else {
+              statements = Collections.emptyList();
+            }
+            TransferFunctionBuilder exportTransBuilder =
+                new TransferFunctionBuilder(config, statements, edge, true);
+            String expPolicy = exportTransBuilder.compute();
+            sb.append(expPolicy + "\n");
+          }
         }
       }
     }
-    sb.append(")\n\n");
+    sb.append("  | _ -> None)\n\n");
 
     sb.append("let transferRoute edge x = \n")
-        .append("  let (c,s,o,b,fib) = x in\n")
+        .append("  let (_,_,o,b,fib) = x in\n")
         .append("  let o = transferOspf edge o in\n")
-        .append("  let b = transferBgp edge b in\n")
+        .append("  let b = transferBgp edge x in\n")
         .append("  (None, None, o, b, fib)\n\n");
 
     sb.append("let trans edge x =\n").append("   transferRoute edge x\n\n");
