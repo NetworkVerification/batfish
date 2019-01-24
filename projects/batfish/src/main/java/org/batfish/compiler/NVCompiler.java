@@ -304,6 +304,8 @@ public class NVCompiler {
         .append("   | Some (ad,cost,areaType,areaId) -> (\n")
         .append("   match edge with\n");
 
+    Set<String> ospfSet = new HashSet<>();
+
     for (GraphEdge edge : _graph.getAllEdges()) {
       if (edge.getPeer() != null) {
         Interface iface = edge.getStart();
@@ -312,7 +314,8 @@ public class NVCompiler {
         //        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
         //        sb.append("None\n");
         // }
-        if (_graph.isInterfaceActive(Protocol.OSPF, iface)) {
+        if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
+          ospfSet.add(edgeMap.get(edge));
           sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
           sb.append("Some (ad, cost + ")
               .append(cost)
@@ -327,7 +330,7 @@ public class NVCompiler {
     sb.append("   | _ -> None\n)\n");
 
     sb.append(" let transferBgp edge x =\n")
-        .append("  let (_,_,_,_,fib) = x in\n")
+        .append("  let (_,_,_,b,fib) = x in\n")
         .append("  let (prefix, prefixLen) = d in\n")
         .append("  let b = match fib with\n")
         .append("           | None -> None\n")
@@ -340,14 +343,16 @@ public class NVCompiler {
         .append("  | None -> None\n")
         .append("  | Some (ad,lp,cost,med,comms) -> (\n")
         .append("   match edge with\n");
+
+    Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           Interface iface = edge.getStart();
-          if (_graph.isInterfaceActive(Protocol.BGP, iface)) {
-            sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+          if (_graph.isInterfaceActive(Protocol.BGP, iface) && !bgpSet.contains(edgeMap.get(edge))) {
+            bgpSet.add(edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
             List<Statement> statements = new ArrayList<>();
             if ((policy != null) && (policy.getStatements() != null)) {
@@ -358,7 +363,17 @@ public class NVCompiler {
             TransferFunctionBuilder exportTransBuilder =
                 new TransferFunctionBuilder(config, statements, edge, true);
             String expPolicy = exportTransBuilder.compute();
-            sb.append(expPolicy + "\n");
+            TransferFunctionBuilder importTransBuilder =
+                new TransferFunctionBuilder(config, statements, edge, false);
+            String impPolicy = importTransBuilder.compute();
+            if (!expPolicy.equals("None")) {
+              sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+              sb.append("\n    let b = " + expPolicy + "\n    in\n")
+                  .append("    (match b with\n")
+                  .append("     | None -> None\n")
+                  .append("     | Some (ad,lp,cost,med,comms) -> \n")
+                  .append("      " + impPolicy + ")\n");
+            }
           }
         }
       }
@@ -372,6 +387,9 @@ public class NVCompiler {
         .append("  (None, None, o, b, fib)\n\n");
 
     sb.append("let trans edge x =\n").append("   transferRoute edge x\n\n");
+
+    /* Print node assignments for usability reasons */
+    sb.append("(*\n" + nodeAssignment.toString() + "*)");
 
     return sb.toString();
   }
