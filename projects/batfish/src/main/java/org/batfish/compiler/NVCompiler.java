@@ -363,9 +363,19 @@ public class NVCompiler {
             TransferFunctionBuilder exportTransBuilder =
                 new TransferFunctionBuilder(config, statements, edge, true);
             String expPolicy = exportTransBuilder.compute();
-            TransferFunctionBuilder importTransBuilder =
-                new TransferFunctionBuilder(config, statements, edge, false);
-            String impPolicy = importTransBuilder.compute();
+            // Do import policy
+            RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(router, Protocol.BGP, edge);
+            List<Statement> importStatements = new ArrayList<>();
+            String impPolicy;
+            if ((importPolicy != null) && (importPolicy.getStatements() != null)) {
+              importStatements = importPolicy.getStatements();
+              TransferFunctionBuilder importTransBuilder =
+                  new TransferFunctionBuilder(config, importStatements, edge, false);
+              impPolicy = importTransBuilder.compute();
+            } else {
+              impPolicy = "(ad,lp,cost,med,comms)";
+            }
+
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
               sb.append("\n    let b = " + expPolicy + "\n    in\n")
