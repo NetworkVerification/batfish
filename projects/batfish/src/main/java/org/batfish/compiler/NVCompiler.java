@@ -373,7 +373,7 @@ public class NVCompiler {
                   new TransferFunctionBuilder(config, importStatements, edge, false);
               impPolicy = importTransBuilder.compute();
             } else {
-              impPolicy = "(ad,lp,cost,med,comms)";
+              impPolicy = "b";
             }
 
             if (!expPolicy.equals("None")) {
