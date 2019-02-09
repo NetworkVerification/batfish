@@ -375,7 +375,8 @@ public class NVCompiler {
             } else {
               impPolicy = "b";
             }
-
+            //(router.startsWith("spine-") && Integer.parseInt(router.substring(13)) % 2 == 0)
+              //  || (!router.startsWith("spine-")))
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
               sb.append("\n    let b = " + expPolicy + "\n    in\n")
