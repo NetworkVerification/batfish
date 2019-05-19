@@ -43,9 +43,9 @@ class InitialAttribute {
     String s = this._static ? "Some 1" : "None";
     String o = "None";
     if (this._areaId.isPresent()) {
-      o = "Some (110, 0, ospfIntraArea, " + _areaId.get() + ")";
+      o = "Some {ospfAd=110; weight=0; areaType=ospfIntraArea; areaId=" + _areaId.get() + ";}";
     }
-    String b = _bgp ? "Some (20, 100, 0, 80, {})" : "None";
+    String b = _bgp ? "Some {bgpAd=20; lp=100; aslen=0; med=80; comms={};}" : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
     sb.append("       let c = ")
         .append(c)
@@ -59,7 +59,8 @@ class InitialAttribute {
         .append("       let b = ")
         .append(b)
         .append(" in\n");
-    sb.append("       let fib = best c s o b in\n").append("        (c,s,o,b,fib)\n");
+    sb.append("       let fib = best c s o b in\n").
+        append("        {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
     return sb.toString();
   }
 
@@ -93,25 +94,37 @@ public class NVCompiler {
     _graph = new Graph(batfish);
   }
 
+  private String optionType(String typ) {
+    return "option["+typ+"]";
+  }
+
   public String compile() {
     StringBuilder sb = new StringBuilder();
-    String ospfType = "option[(int, int, int, int)]"; // (ad, cost, area-type, area-id)
-    String connType = "option[int]"; // ad
-    String staticType = "option[int]"; // ad
-    String bgpType = "option[(int,int,int,int,set[int])]"; // (ad, lp, cost, med, comms)
+    String ospfType = "{ospfAd: int; weight: int; areaType:int; areaId: int;}"; // (ad, cost, area-type, area-id)
+    String connType = "int"; // ad
+    String staticType = "int"; // ad
+    String bgpType = "{bgpAd: int; lp: int; aslen: int; med:int; comms:set[int];}"; // (ad, lp, cost, med, comms)
     // String bgpType = "option[(int,int,int,int)]"; // (ad, lp, cost, med, comms)
-    String bestType = "option[int]"; // proto
-    sb.append("type attribute = (")
-        .append(connType)
-        .append(",")
-        .append(staticType)
-        .append(",")
-        .append(ospfType)
-        .append(",")
-        .append(bgpType)
-        .append(",")
-        .append(bestType)
-        .append(")\n\n");
+    String bestType = "int"; // proto
+    sb.append("type ospfType = " + ospfType + "\n")
+        .append("type bgpType = " + bgpType + "\n")
+        .append("type rib = {\n")
+        .append("    connected:")
+        .append(optionType(connType))
+        .append(";\n")
+        .append("    static:")
+        .append(optionType(staticType))
+        .append(";\n")
+        .append("    ospf:")
+        .append(optionType("ospfType"))
+        .append(";\n")
+        .append("    bgp:")
+        .append(optionType("bgpType"))
+        .append(";\n")
+        .append("    selected:")
+        .append(optionType(bestType))
+        .append("; }\n")
+        .append("type attribute = rib\n\n");
 
     // symbolic destination variable
     sb.append("symbolic d : (int, int)\n\n");
@@ -170,22 +183,20 @@ public class NVCompiler {
         .append("  | (Some a, Some b) -> Some (f a b)\n\n");
 
     sb.append("let betterOspf o1 o2 =\n")
-        .append("  let (_,cost1,areaType1,_) = o1 in\n")
-        .append("  let (_,cost2,areaType2,_) = o2 in\n")
-        .append("  if areaType1 > areaType2 then o1\n")
-        .append("  else if areaType2 > areaType1 then o2\n")
-        .append("  else if cost1 <= cost2 then o1 else o2\n\n");
+        .append("  if o1.areaType > o2.areaType then o1\n")
+        .append("  else if o2.areaType > o1.areaType then o2\n")
+        .append("  else if o1.weight <= o2.weight then o1 else o2\n\n");
 
-    sb.append("let betterBgp o1 o2 =\n")
+    sb.append("let betterBgp b1 b2 =\n")
         // .append("  let (_,lp1,cost1,med1) = o1 in\n")
         // .append("  let (_,lp2,cost2,med2) = o2 in\n")
-        .append("  let (_,lp1,cost1,med1,_) = o1 in\n")
-        .append("  let (_,lp2,cost2,med2,_) = o2 in\n")
-        .append("  if lp1 > lp2 then o1\n")
-        .append("  else if lp2 > lp1 then o2\n")
-        .append("  else if cost1 < cost2 then o1\n")
-        .append("  else if cost2 < cost1 then o2")
-        .append("  else if med1 >= med2 then o1 else o2\n\n");
+        //.append("  let (_,lp1,cost1,med1,_) = o1 in\n")
+        //.append("  let (_,lp2,cost2,med2,_) = o2 in\n")
+        .append("  if b1.lp > b2.lp then b1\n")
+        .append("  else if b2.lp > b1.lp then b2\n")
+        .append("  else if b1.aslen < b2.aslen then b1\n")
+        .append("  else if b2.aslen < b1.aslen then b2")
+        .append("  else if b1.med >= b2.med then b1 else b2\n\n");
 
     sb.append("let betterEqOption o1 o2 =\n")
         .append("  match (o1,o2) with\n")
@@ -198,21 +209,23 @@ public class NVCompiler {
         .append("  match (c,s,o,b) with\n")
         .append("  | (None,None,None,None) -> None\n")
         .append("  | _ -> \n")
-        .append("      let o = match o with | None -> None | Some (ad,_,_,_) -> Some ad in\n")
-        .append("      let b = match b with | None -> None | Some (ad,_,_,_,_) -> Some ad in\n")
+        .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
+        .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
         // .append("      let b = match b with | None -> None | Some (ad,_,_,_) -> Some ad in\n")
         .append("      let (x,p1) = if betterEqOption c s then (c,0) else (s,1) in\n")
         .append("      let (y,p2) = if betterEqOption o b then (o,2) else (b,3) in\n")
         .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
 
     sb.append("let mergeValues x y =\n")
-        .append("  let (cx,sx,ox,bx,_) = x in\n")
-        .append("  let (cy,sy,oy,by,_) = y in\n")
-        .append("  let c = pickOption min cx cy in\n")
-        .append("  let s = pickOption min sx sy in\n")
-        .append("  let o = pickOption betterOspf ox oy in\n")
-        .append("  let b = pickOption betterBgp bx by in\n")
-        .append("  (c,s,o,b, best c s o b)\n\n");
+        .append("  let c = pickOption min x.connected y.connected in\n")
+        .append("  let s = pickOption min x.static y.static in\n")
+        .append("  let o = pickOption betterOspf x.ospf y.ospf in\n")
+        .append("  let b = pickOption betterBgp x.bgp y.bgp in\n")
+        .append("  { connected = c;\n"
+            +   "    static = s;\n"
+            +   "    ospf = o;\n"
+            +   "    bgp = b;\n"
+            +   "    selected = best c s o b}\n\n");
 
     sb.append("let merge node x y = mergeValues x y\n\n");
 
@@ -294,14 +307,14 @@ public class NVCompiler {
         }
         sb.append(" then\n").append(initAttr).append("     else ");
       }
-      sb.append("(None,None,None,None,None)\n");
+      sb.append("{connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
     }
-    sb.append("  | _ -> (None,None,None,None,None)\n\n");
+    sb.append("  | _ -> {connected=None; static=None; ospf=None; bgp=None; selected=None;}\n\n");
 
     sb.append(" let transferOspf edge o =\n")
         .append("   match o with\n")
         .append("   | None -> None\n")
-        .append("   | Some (ad,cost,areaType,areaId) -> (\n")
+        .append("   | Some o -> (\n")
         .append("   match edge with\n");
 
     Set<String> ospfSet = new HashSet<>();
@@ -317,31 +330,30 @@ public class NVCompiler {
         if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
           ospfSet.add(edgeMap.get(edge));
           sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-          sb.append("Some (ad, cost + ")
+          sb.append("Some {ospfAd = o.ad; weight = o.weight + ")
               .append(cost)
-              .append(", if !(areaId = ")
+              .append("; areaType = if !(o.areaId = ")
               .append(areaId)
-              .append(") then ospfInterArea else areaType, ")
+              .append(") then ospfInterArea else o.areaType; areaId = ")
               .append(areaId)
-              .append(")\n");
+              .append(";}\n");
         }
       }
     }
     sb.append("   | _ -> None\n)\n");
 
     sb.append(" let transferBgp edge x =\n")
-        .append("  let (_,_,_,b,fib) = x in\n")
         .append("  let (prefix, prefixLen) = d in\n")
-        .append("  let b = match fib with\n")
+        .append("  let b = match x.selected with\n")
         .append("           | None -> None\n")
-        .append("           | Some 0 -> Some (0,100,0,80,{})\n")
-        .append("           | Some 1 -> Some (1,100,0,80,{})\n")
-        .append("           | Some 2 -> Some (110,100,0,80,{})\n")
-        .append("           | Some 3 -> b\n")
+        .append("           | Some 0 -> Some {bgpAd = 0; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append("           | Some 1 -> Some {bgpAd = 1; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append("           | Some 2 -> Some {bgpAd = 110; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append("           | Some 3 -> x.bgp\n")
         .append("  in\n")
         .append("  match b with\n")
         .append("  | None -> None\n")
-        .append("  | Some (ad,lp,cost,med,comms) -> (\n")
+        .append("  | Some b -> (\n")
         .append("   match edge with\n");
 
     Set<String> bgpSet = new HashSet<>();
@@ -379,11 +391,17 @@ public class NVCompiler {
               //  || (!router.startsWith("spine-")))
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-              sb.append("\n    let b = " + expPolicy + "\n    in\n")
-                  .append("    (match b with\n")
+              sb.append("\n    let b = " + expPolicy + "\n    in\n");
+              if (impPolicy.equals("b")) {
+                sb.append("      b\n");
+              }
+              else
+              {
+                sb.append("    (match b with\n")
                   .append("     | None -> None\n")
-                  .append("     | Some (ad,lp,cost,med,comms) -> \n")
+                  .append("     | Some b -> \n")
                   .append("      " + impPolicy + ")\n");
+              }
             }
           }
         }
@@ -392,10 +410,9 @@ public class NVCompiler {
     sb.append("  | _ -> None)\n\n");
 
     sb.append("let transferRoute edge x = \n")
-        .append("  let (_,_,o,b,fib) = x in\n")
-        .append("  let o = transferOspf edge o in\n")
+        .append("  let o = transferOspf edge x.ospf in\n")
         .append("  let b = transferBgp edge x in\n")
-        .append("  (None, None, o, b, fib)\n\n");
+        .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
 
     sb.append("let trans edge x =\n").append("   transferRoute edge x\n\n");
 

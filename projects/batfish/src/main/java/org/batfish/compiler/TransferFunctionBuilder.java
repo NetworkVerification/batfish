@@ -1027,18 +1027,22 @@ class TransferFunctionBuilder {
       String retVal =
           mkIf(
               curResult.getReturnValue(),
-              "(Some ("
+              "(Some {bgpAd= "
                   + p.getData().get_ad()
-                  + ","
+                  + "; "
+                  + "lp= "
                   + p.getData().get_lp()
-                  + ","
+                  + "; "
+                  + "aslen= "
                   + p.getData().get_cost()
                   + " + 1"
-                  + ","
+                  + "; "
+                  + "med= "
                   + p.getData().get_med()
-                  + ","
+                  + ";"
+                  + "comms= "
                   + p.getData().get_communities()
-                  + "))",
+                  + ";})",
               "None");
       curResult = curResult.setReturnValue(retVal);
     }

@@ -22,12 +22,12 @@ public class Environment implements IDeepCopy<Environment> {
   private String _prefixValue;
 
   public Environment() {
-    this._lp = "lp";
-    this._ad = "ad";
-    this._cost = "cost";
-    this._med = "med";
-    this._communities = "comms";
-    this._protocol = "fib";
+    this._lp = "b.lp";
+    this._ad = "b.bgpAd";
+    this._cost = "b.aslen";
+    this._med = "b.med";
+    this._communities = "b.comms";
+    this._protocol = "x.selected";
     this._prefixLength = "prefixLen";
     this._prefixValue = "prefix";
   }
