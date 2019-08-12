@@ -126,6 +126,7 @@ public abstract class Question implements IQuestion {
 
       private JsonNode _value;
 
+
       public Variable() {
         _allowedValues = new TreeSet<>();
       }

@@ -37,7 +37,7 @@ class InitialAttribute {
     _bgp = bgp;
   }
 
-  public String compileAttr() {
+  public String compileAttr(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
     String c = this._conn ? "Some 0" : "None";
     String s = this._static ? "Some 1" : "None";
@@ -58,9 +58,14 @@ class InitialAttribute {
         .append(" in\n")
         .append("       let b = ")
         .append(b)
-        .append(" in\n");
-    sb.append("       let fib = best c s o b in\n").
-        append("        {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
+        .append(" in\n")
+        .append("       let fib = best c s o b in\n");
+        if (singlePrefix) {
+          sb.append("        {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
+        } else {
+          sb.append("       let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
+        }
+
     return sb.toString();
   }
 
@@ -98,7 +103,11 @@ public class NVCompiler {
     return "option["+typ+"]";
   }
 
-  public String compile() {
+  private String dictType(String keyTyp, String valTyp) {
+    return "dict["+keyTyp+", "+ valTyp+"]";
+  }
+
+  public String compile(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
     String ospfType = "{ospfAd: int; weight: int; areaType:int; areaId: int;}"; // (ad, cost, area-type, area-id)
     String connType = "int"; // ad
@@ -123,11 +132,18 @@ public class NVCompiler {
         .append(";\n")
         .append("    selected:")
         .append(optionType(bestType))
-        .append("; }\n")
-        .append("type attribute = rib\n\n");
+        .append("; }\n");
 
-    // symbolic destination variable
-    sb.append("symbolic d : (int, int)\n\n");
+    // Either a single attribute or a map of attributes from prefix to route.
+    sb = sb.append("type attribute = " +
+        (singlePrefix ? sb.append("rib") : dictType("(int,int)", "rib") )+ "\n\n");
+
+    // symbolic destination variable. For now we only use one for single prefix networks.
+    // We should make it so that symbolic destinations are used to represent external messages too.
+    if (singlePrefix) {
+      sb.append("symbolic d : (int, int)\n\n");
+    }
+
 
     // assign each node to a unique number starting from 0
     Map<String, Integer> nodeAssignment = new HashMap<>();
@@ -140,6 +156,10 @@ public class NVCompiler {
     Map<GraphEdge, String> edgeMap = new HashMap<>();
     Set<String> edgeSet = new HashSet<>();
 
+    // Create the edge map of the network. We are currently ignoring hanging edges.
+    // We should think how to represent those in the NV network. Perhaps, as an extra
+    // (or two, we used to say we need two but I don't remember why) node connected to all nodes
+    // with hanging edges.
     sb.append("let edges = {\n");
     for (GraphEdge edge : _graph.getAllEdges()) {
       Integer node1 = nodeAssignment.get(edge.getRouter());
@@ -188,10 +208,6 @@ public class NVCompiler {
         .append("  else if o1.weight <= o2.weight then o1 else o2\n\n");
 
     sb.append("let betterBgp b1 b2 =\n")
-        // .append("  let (_,lp1,cost1,med1) = o1 in\n")
-        // .append("  let (_,lp2,cost2,med2) = o2 in\n")
-        //.append("  let (_,lp1,cost1,med1,_) = o1 in\n")
-        //.append("  let (_,lp2,cost2,med2,_) = o2 in\n")
         .append("  if b1.lp > b2.lp then b1\n")
         .append("  else if b2.lp > b1.lp then b2\n")
         .append("  else if b1.aslen < b2.aslen then b1\n")
@@ -211,7 +227,6 @@ public class NVCompiler {
         .append("  | _ -> \n")
         .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
         .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
-        // .append("      let b = match b with | None -> None | Some (ad,_,_,_) -> Some ad in\n")
         .append("      let (x,p1) = if betterEqOption c s then (c,0) else (s,1) in\n")
         .append("      let (y,p2) = if betterEqOption o b then (o,2) else (b,3) in\n")
         .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
@@ -227,9 +242,22 @@ public class NVCompiler {
             +   "    bgp = b;\n"
             +   "    selected = best c s o b}\n\n");
 
-    sb.append("let merge node x y = mergeValues x y\n\n");
+    /* Merge one attribute or combine over map */
+    if (singlePrefix) {
+      sb.append("let merge node x y = mergeValues x y\n\n");
+    } else {
+      sb.append("let merge node x y = combine mergeValues x y\n\n");
+    }
 
-    sb.append("let init node =\n").append("  match node with\n");
+    sb.append("let init node =\n");
+
+    /* init depends on whether we do a single route or not */
+    if (singlePrefix) {
+      sb.append("  match node with\n");
+    } else {
+      sb.append("  let d = createDict (None,None,None,None,None) in\n")
+          .append("  match node with\n");
+    }
 
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
@@ -290,26 +318,41 @@ public class NVCompiler {
       }
 
       sb.append("     ");
-      for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
-        String initAttr = attrpre.getKey().compileAttr();
-        Boolean first = true;
-        sb.append("if ");
-        for (Prefix pre : attrpre.getValue()) {
-          if (!first) {
-            sb.append(" || ");
+      /* This induces a large repetition of code but it's ok for now */
+      if (singlePrefix) {
+        for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
+          String initAttr = attrpre.getKey().compileAttr(singlePrefix);
+          Boolean first = true;
+          sb.append("if ");
+          for (Prefix pre : attrpre.getValue()) {
+            if (!first) {
+              sb.append(" || ");
+            }
+            sb.append("(d = (")
+                .append(pre.getStartIp().asLong())
+                .append(", ")
+                .append(pre.getPrefixLength())
+                .append("))");
+            first = false;
           }
-          sb.append("(d = (")
-              .append(pre.getStartIp().asLong())
-              .append(", ")
-              .append(pre.getPrefixLength())
-              .append("))");
-          first = false;
+          sb.append(" then\n").append(initAttr).append("     else ");
         }
-        sb.append(" then\n").append(initAttr).append("     else ");
+        sb.append("{connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
+      } else {
+        for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
+          String initAttr = attrpre.getKey().compileAttr(singlePrefix);
+          for (Prefix pre : attrpre.getValue()) {
+            sb.append("let d = d[(")
+                .append(pre.getStartIp().asLong())
+                .append(", ")
+                .append(pre.getPrefixLength())
+                .append(") := route] in");
+          }
+        }
+        sb.append("      d\n");
       }
-      sb.append("{connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
     }
-    sb.append("  | _ -> {connected=None; static=None; ospf=None; bgp=None; selected=None;}\n\n");
+    sb.append("  | _ -> d\n\n");
 
     sb.append(" let transferOspf edge o =\n")
         .append("   match o with\n")
@@ -387,8 +430,6 @@ public class NVCompiler {
             } else {
               impPolicy = "b";
             }
-            //(router.startsWith("spine-") && Integer.parseInt(router.substring(13)) % 2 == 0)
-              //  || (!router.startsWith("spine-")))
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
               sb.append("\n    let b = " + expPolicy + "\n    in\n");
@@ -414,7 +455,13 @@ public class NVCompiler {
         .append("  let b = transferBgp edge x in\n")
         .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
 
-    sb.append("let trans edge x =\n").append("   transferRoute edge x\n\n");
+    sb.append("let trans edge x =\n");
+    if (singlePrefix) {
+      sb.append("   transferRoute edge x\n\n");
+    } else
+    {
+      sb.append("  map (transferRoute edge) x\n\n");
+    }
 
     /* Print node assignments for usability reasons */
     sb.append("(*\n" + nodeAssignment.toString() + "*)");

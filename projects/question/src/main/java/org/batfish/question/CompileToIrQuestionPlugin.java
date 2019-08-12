@@ -6,6 +6,7 @@ import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
 import org.batfish.datamodel.answers.AnswerElement;
 import org.batfish.datamodel.questions.Question;
+import org.batfish.datamodel.questions.smt.HeaderQuestion;
 
 @AutoService(Plugin.class)
 public class CompileToIrQuestionPlugin extends QuestionPlugin {
@@ -18,12 +19,12 @@ public class CompileToIrQuestionPlugin extends QuestionPlugin {
 
     @Override
     public AnswerElement answer() {
-      // CompileToIrQuestion question = (CompileToIrQuestion) _question;
-      return this._batfish.compileToIr();
+      CompileToIrQuestion q = (CompileToIrQuestion) _question;
+      return this._batfish.compileToIr(q.getSinglePrefix());
     }
   }
 
-  public static class CompileToIrQuestion extends Question {
+  public static class CompileToIrQuestion extends HeaderQuestion {
 
     public CompileToIrQuestion() {}
 

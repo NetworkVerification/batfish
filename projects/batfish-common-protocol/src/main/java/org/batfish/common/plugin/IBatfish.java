@@ -216,7 +216,7 @@ public interface IBatfish extends IPluginConsumer {
 
   AnswerElement standard(ReachabilityParameters reachabilityParameters);
 
-  AnswerElement compileToIr();
+  AnswerElement compileToIr(boolean singlePrefix);
 
   void writeDataPlane(DataPlane dp, DataPlaneAnswerElement ae);
 

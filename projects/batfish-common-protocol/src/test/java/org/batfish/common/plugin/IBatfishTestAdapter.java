@@ -425,7 +425,7 @@ public class IBatfishTestAdapter implements IBatfish {
   }
 
   @Override
-  public AnswerElement compileToIr() {
+  public AnswerElement compileToIr(boolean singlePrefix) {
     throw new UnsupportedOperationException();
   }
 

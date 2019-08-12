@@ -4826,8 +4826,8 @@ public class Batfish extends PluginConsumer implements IBatfish {
   }
 
   @Override
-  public AnswerElement compileToIr() {
+  public AnswerElement compileToIr(boolean singlePrefix) {
     NVCompiler c = new NVCompiler(this);
-    return new StringAnswerElement(c.compile());
+    return new StringAnswerElement(c.compile(singlePrefix));
   }
 }
