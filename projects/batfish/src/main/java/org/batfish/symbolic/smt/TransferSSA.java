@@ -1434,7 +1434,7 @@ class TransferSSA {
 
   public BoolExpr compute() {
     SymbolicRoute o = new SymbolicRoute(_other);
-    TransferParam<SymbolicRoute> p = new TransferParam<>(o, Encoder.ENABLE_DEBUGGING);
+    TransferParam<SymbolicRoute> p = new TransferParam<>(o, true);
     computeIntermediatePrefixLen(p);
     applyMetricUpdate(p);
     setDefaultLocalPref(p);

@@ -272,6 +272,9 @@ class TransferFunctionBuilder {
     if (e instanceof NamedCommunitySet) {
       NamedCommunitySet x = (NamedCommunitySet) e;
       CommunityList cl = conf.getCommunityLists().get(x.getName());
+      if (cl == null) {
+        System.out.println("Looked up: " + x.getName() + ", from: " + conf.getHostname());
+      }
       return matchCommunityList(cl, other);
     }
 
@@ -533,14 +536,12 @@ class TransferFunctionBuilder {
   /*
    * Create a new variable reflecting the final return value of the function
    */
-  private TransferResult<String, String> returnValue(
-      TransferParam<Environment> p, TransferResult<String, String> r, boolean val) {
+  private TransferResult<String, String> returnValue(TransferResult<String, String> r, boolean val) {
     String b = mkIf(r.getReturnAssignedValue(), r.getReturnValue(), "" + val);
     return r.setReturnValue(b).setReturnAssignedValue("true").addChangedVariable("RETURN", b);
   }
 
-  private TransferResult<String, String> fallthrough(
-      TransferParam<Environment> p, TransferResult<String, String> r) {
+  private TransferResult<String, String> fallthrough(TransferResult<String, String> r) {
     String b = mkIf(r.getReturnAssignedValue(), r.getFallthroughValue(), "true");
     return r.setFallthroughValue(b)
         .setReturnAssignedValue("true")
@@ -743,7 +744,7 @@ class TransferFunctionBuilder {
   }
 
   /*
-   * Convert a list of statements into a Z3 boolean expression for the transfer function.
+   * Convert a list of statements into an NV expression for the transfer function.
    */
   private TransferResult<String, String> compute(
       List<Statement> statements,
@@ -756,6 +757,7 @@ class TransferFunctionBuilder {
 
     for (ListIterator<Statement> iter = statements.listIterator(); iter.hasNext(); ) {
       Statement stmt = iter.next();
+      System.out.println("Executing " + stmt.toString() + " comms: " + curP.getData().get_communities() + "\n");
       if (stmt instanceof StaticStatement) {
         StaticStatement ss = (StaticStatement) stmt;
 
@@ -763,7 +765,7 @@ class TransferFunctionBuilder {
           case ExitAccept:
             doesReturn = true;
             curP.debug("ExitAccept");
-            curResult = returnValue(curP, curResult, true);
+            curResult = returnValue(curResult, true);
             break;
 
             // TODO: implement proper unsuppression of routes covered by aggregates
@@ -771,13 +773,13 @@ class TransferFunctionBuilder {
           case ReturnTrue:
             doesReturn = true;
             curP.debug("ReturnTrue");
-            curResult = returnValue(curP, curResult, true);
+            curResult = returnValue(curResult, true);
             break;
 
           case ExitReject:
             doesReturn = true;
             curP.debug("ExitReject");
-            curResult = returnValue(curP, curResult, false);
+            curResult = returnValue(curResult, false);
             break;
 
             // TODO: implement proper suppression of routes covered by aggregates
@@ -785,7 +787,7 @@ class TransferFunctionBuilder {
           case ReturnFalse:
             doesReturn = true;
             curP.debug("ReturnFalse");
-            curResult = returnValue(curP, curResult, false);
+            curResult = returnValue(curResult, false);
             break;
 
           case SetDefaultActionAccept:
@@ -812,15 +814,15 @@ class TransferFunctionBuilder {
             curP.debug("ReturnLocalDefaultAction");
             // TODO: need to set local default action in an environment
             if (curP.getDefaultAcceptLocal()) {
-              curResult = returnValue(curP, curResult, true);
+              curResult = returnValue(curResult, true);
             } else {
-              curResult = returnValue(curP, curResult, false);
+              curResult = returnValue(curResult, false);
             }
             break;
 
           case FallThrough:
             curP.debug("Fallthrough");
-            curResult = fallthrough(curP, curResult);
+            curResult = fallthrough(curResult);
             break;
 
           case Return:
@@ -847,7 +849,7 @@ class TransferFunctionBuilder {
 
         // If there are updates in the guard, add them to the parameter p before entering branches
         for (Pair<String, String> changed : r.getChangedVariables()) {
-          curP.debug("CHANGED: " + changed.getFirst());
+          curP.debug("CHANGED_IN_GUARD: " + changed.getFirst());
           updateSingleValue(curP, changed.getFirst(), changed.getSecond());
         }
 
@@ -875,6 +877,7 @@ class TransferFunctionBuilder {
             TransferResult<String, String> falseBranch =
                 compute(i.getFalseStatements(), p2, initialResult());
             curP.debug("JOIN");
+
             PList<Pair<String, Pair<String, String>>> pairs =
                 trueBranch.mergeChangedVariables(falseBranch);
 
@@ -934,7 +937,7 @@ class TransferFunctionBuilder {
         }
         newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
         curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", commExpr);
+        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
       } else if (stmt instanceof SetCommunity) {
         curP.debug("SetCommunity");
@@ -947,9 +950,10 @@ class TransferFunctionBuilder {
         for (CommunityVar cvar : comms) {
           newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
         }
+        System.out.println("RESULT:" + curResult.getReturnAssignedValue());
         newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
         curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", commExpr);
+        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
       } else if (stmt instanceof DeleteCommunity) {
         curP.debug("DeleteCommunity");
@@ -964,7 +968,7 @@ class TransferFunctionBuilder {
         }
         newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
         curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", commExpr);
+        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
       } else if (stmt instanceof RetainCommunity) {
         curP.debug("RetainCommunity");
@@ -1018,9 +1022,9 @@ class TransferFunctionBuilder {
       if (!doesReturn) {
         curP.debug("Applying default action: " + curP.getDefaultAccept());
         if (curP.getDefaultAccept()) {
-          curResult = returnValue(curP, curResult, true);
+          curResult = returnValue(curResult, true);
         } else {
-          curResult = returnValue(curP, curResult, false);
+          curResult = returnValue(curResult, false);
         }
       }
       String ret = result.getReturnValue();
@@ -1028,20 +1032,20 @@ class TransferFunctionBuilder {
           mkIf(
               curResult.getReturnValue(),
               "(Some {bgpAd= "
-                  + p.getData().get_ad()
+                  + curP.getData().get_ad()
                   + "; "
                   + "lp= "
-                  + p.getData().get_lp()
+                  + curP.getData().get_lp()
                   + "; "
                   + "aslen= "
-                  + p.getData().get_cost()
+                  + curP.getData().get_cost()
                   + " + 1"
                   + "; "
                   + "med= "
-                  + p.getData().get_med()
+                  + curP.getData().get_med()
                   + ";"
                   + "comms= "
-                  + p.getData().get_communities()
+                  + curP.getData().get_communities()
                   + ";})",
               "None");
       curResult = curResult.setReturnValue(retVal);
@@ -1051,7 +1055,7 @@ class TransferFunctionBuilder {
 
   public String compute() {
     Environment env = new Environment();
-    TransferParam<Environment> p = new TransferParam<>(env, false);
+    TransferParam<Environment> p = new TransferParam<>(env, true);
     TransferResult<String, String> result = compute(_statements, p, initialResult());
     return result.getReturnValue();
   }

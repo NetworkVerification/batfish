@@ -47,23 +47,23 @@ class InitialAttribute {
     }
     String b = _bgp ? "Some {bgpAd=20; lp=100; aslen=0; med=80; comms={};}" : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
-    sb.append("       let c = ")
+    sb.append("let c = ")
         .append(c)
         .append(" in\n")
-        .append("       let s = ")
+        .append("    let s = ")
         .append(s)
         .append(" in\n")
-        .append("       let o = ")
+        .append("    let o = ")
         .append(o)
         .append(" in\n")
-        .append("       let b = ")
+        .append("    let b = ")
         .append(b)
         .append(" in\n")
-        .append("       let fib = best c s o b in\n");
+        .append("    let fib = best (" + c + ") " + "(" + s + ") o b in\n");
         if (singlePrefix) {
-          sb.append("        {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
+          sb.append("      {connected="+c+"; static="+s+"; ospf=o; bgp=b; selected=fib;}\n");
         } else {
-          sb.append("       let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
+          sb.append("    let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
         }
 
     return sb.toString();
@@ -136,7 +136,7 @@ public class NVCompiler {
 
     // Either a single attribute or a map of attributes from prefix to route.
     sb = sb.append("type attribute = " +
-        (singlePrefix ? sb.append("rib") : dictType("(int,int)", "rib") )+ "\n\n");
+        (singlePrefix ? "rib" : dictType("(int,int)", "rib") )+ "\n\n");
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
@@ -164,12 +164,13 @@ public class NVCompiler {
     for (GraphEdge edge : _graph.getAllEdges()) {
       Integer node1 = nodeAssignment.get(edge.getRouter());
       Integer node2 = nodeAssignment.get(edge.getPeer());
-      String edgeString = "(" + node1 + "," + node2 + ")";
+      String edgeString = "(" + node1 + "~" + node2 + ")";
       if (node2 != null) {
         edgeMap.put(edge, edgeString);
         if (!edgeSet.contains(edgeString)) {
           edgeSet.add(edgeString);
-          sb.append("  ").append(node1).append("-").append(node2).append(";\n");
+
+          sb.append("  ").append(node1).append("-").append(node2).append("; (*" + edge.toString() + "*)\n");
         }
       }
     }
@@ -197,9 +198,8 @@ public class NVCompiler {
 
     sb.append("let pickOption f x y =\n")
         .append("  match (x,y) with\n")
-        .append("  | (None, None) -> None\n")
-        .append("  | (None, Some _) -> y")
-        .append("  | (Some _, None) -> x\n")
+        .append("  | (None, _) -> y")
+        .append("  | (_, None) -> x\n")
         .append("  | (Some a, Some b) -> Some (f a b)\n\n");
 
     sb.append("let betterOspf o1 o2 =\n")
@@ -211,14 +211,13 @@ public class NVCompiler {
         .append("  if b1.lp > b2.lp then b1\n")
         .append("  else if b2.lp > b1.lp then b2\n")
         .append("  else if b1.aslen < b2.aslen then b1\n")
-        .append("  else if b2.aslen < b1.aslen then b2")
+        .append("  else if b2.aslen < b1.aslen then b2\n")
         .append("  else if b1.med >= b2.med then b1 else b2\n\n");
 
     sb.append("let betterEqOption o1 o2 =\n")
         .append("  match (o1,o2) with\n")
-        .append("  | (None, None) -> true\n")
-        .append("  | (Some _, None) -> true\n")
-        .append("  | (None, Some _) -> false\n")
+        .append("  | (_, None) -> true\n")
+        .append("  | (None, _) -> false\n")
         .append("  | (Some a, Some b) -> a <= b\n\n");
 
     sb.append("let best c s o b =\n")
@@ -255,7 +254,7 @@ public class NVCompiler {
     if (singlePrefix) {
       sb.append("  match node with\n");
     } else {
-      sb.append("  let d = createDict (None,None,None,None,None) in\n")
+      sb.append("  let d = createDict ({connected=None; static=None; ospf=None; bgp=None; selected=None;}) in\n")
           .append("  match node with\n");
     }
 
@@ -263,7 +262,7 @@ public class NVCompiler {
       String router = entry.getKey();
       Configuration conf = entry.getValue();
       Integer nodeId = nodeAssignment.get(router);
-      sb.append("  | ").append(nodeId).append(" -> \n");
+      sb.append("  | ").append(nodeId).append("n -> \n");
       Set<Prefix> connPrefixes = Graph.getOriginatedNetworks(conf, Protocol.CONNECTED);
       Set<Prefix> staticPrefixes = Graph.getOriginatedNetworks(conf, Protocol.STATIC);
       Set<Prefix> ospfPrefixes = Graph.getOriginatedNetworks(conf, Protocol.OSPF);
@@ -341,15 +340,16 @@ public class NVCompiler {
       } else {
         for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
           String initAttr = attrpre.getKey().compileAttr(singlePrefix);
+          sb.append(initAttr);
           for (Prefix pre : attrpre.getValue()) {
-            sb.append("let d = d[(")
+            sb.append("      let d = d[(")
                 .append(pre.getStartIp().asLong())
                 .append(", ")
                 .append(pre.getPrefixLength())
-                .append(") := route] in");
+                .append(") := route] in\n");
           }
         }
-        sb.append("      d\n");
+        sb.append("        d\n");
       }
     }
     sb.append("  | _ -> d\n\n");
@@ -383,7 +383,7 @@ public class NVCompiler {
         }
       }
     }
-    sb.append("   | _ -> None\n)\n");
+    sb.append("   | _ -> None\n)\n\n");
 
     sb.append(" let transferBgp edge x =\n")
         .append("  let (prefix, prefixLen) = d in\n")
@@ -409,7 +409,7 @@ public class NVCompiler {
           if (_graph.isInterfaceActive(Protocol.BGP, iface) && !bgpSet.contains(edgeMap.get(edge))) {
             bgpSet.add(edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
-            List<Statement> statements = new ArrayList<>();
+            List<Statement> statements;
             if ((policy != null) && (policy.getStatements() != null)) {
               statements = policy.getStatements();
             } else {
@@ -419,16 +419,22 @@ public class NVCompiler {
                 new TransferFunctionBuilder(config, statements, edge, true);
             String expPolicy = exportTransBuilder.compute();
             // Do import policy
-            RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(router, Protocol.BGP, edge);
-            List<Statement> importStatements = new ArrayList<>();
-            String impPolicy;
-            if ((importPolicy != null) && (importPolicy.getStatements() != null)) {
-              importStatements = importPolicy.getStatements();
-              TransferFunctionBuilder importTransBuilder =
-                  new TransferFunctionBuilder(config, importStatements, edge, false);
-              impPolicy = importTransBuilder.compute();
-            } else {
-              impPolicy = "b";
+
+            List<Statement> importStatements;
+            String impPolicy = "b";
+            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
+            System.out.println("Original edge: " + edge.toString());
+            System.out.println("Inverse edge: " + invEdge.toString());
+            if (invEdge != null) {
+              String otherRouter = invEdge.getRouter();
+              RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter, Protocol.BGP, invEdge);
+              Configuration invConfig = _graph.getConfigurations().get(otherRouter);
+              if ((importPolicy != null) && (importPolicy.getStatements() != null)) {
+                importStatements = importPolicy.getStatements();
+                TransferFunctionBuilder importTransBuilder =
+                    new TransferFunctionBuilder(invConfig, importStatements, invEdge, false);
+                impPolicy = importTransBuilder.compute();
+              }
             }
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
