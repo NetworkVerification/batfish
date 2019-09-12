@@ -199,17 +199,16 @@ class TransferFunctionBuilder {
   /*
    * Converts a prefix set to a boolean expression.
    */
-  private TransferResult<String, String> matchPrefixSet(
+  private String matchPrefixSet(
       Configuration conf, PrefixSetExpr e, Environment other) {
 
-    TransferResult<String, String> result = new TransferResult<>();
 
     if (e instanceof ExplicitPrefixSet) {
       ExplicitPrefixSet x = (ExplicitPrefixSet) e;
 
       Set<PrefixRange> ranges = x.getPrefixSpace().getPrefixRanges();
       if (ranges.isEmpty()) {
-        return result.setReturnValue("true");
+        return "true";
       }
 
       // Compute if the other best route is relevant for this match statement
@@ -218,13 +217,13 @@ class TransferFunctionBuilder {
         acc = mkOr(acc, isRelevantFor(other, range));
       }
 
-      return result.setReturnValue("(" + acc + ")");
+      return ("(" + acc + ")");
 
     } else if (e instanceof NamedPrefixSet) {
       NamedPrefixSet x = (NamedPrefixSet) e;
       String name = x.getName();
       RouteFilterList fl = conf.getRouteFilterLists().get(name);
-      return result.setReturnValue(matchFilterList(fl, other));
+      return matchFilterList(fl, other);
 
     } else {
       throw new BatfishException("TODO: match prefix set: " + e);
@@ -299,30 +298,28 @@ class TransferFunctionBuilder {
    * Convert a Batfish AST boolean expression to a symbolic Z3 boolean expression
    * by performing inlining of stateful side effects.
    */
-  private TransferResult<String, String> compute(BooleanExpr expr, TransferParam<Environment> p) {
+  private String compute(BooleanExpr expr, TransferParam<Environment> p) {
     TransferParam<Environment> pCur = p;
     // TODO: right now everything is IPV4
     if (expr instanceof MatchIpv4) {
       pCur.debug("MatchIpv4");
-      return fromExpr("true");
+      return "true";
     }
     if (expr instanceof MatchIpv6) {
       pCur.debug("MatchIpv6");
-      return fromExpr("false");
+      return "false";
     }
 
     if (expr instanceof Conjunction) {
       pCur.debug("Conjunction");
       Conjunction c = (Conjunction) expr;
       String acc = "(";
-      TransferResult<String, String> result = new TransferResult<>();
       for (BooleanExpr be : c.getConjuncts()) {
-        TransferResult<String, String> r = compute(be, pCur.indent());
-        result = result.addChangedVariables(r);
-        acc = acc.equals("(") ? acc + r.getReturnValue() : mkAnd(acc, r.getReturnValue());
+        String r = compute(be, pCur.indent());
+        acc = acc.equals("(") ? acc + r : mkAnd(acc, r);
       }
       pCur.debug("has changed variable");
-      return result.setReturnValue(acc + ")");
+      return (acc + ")");
     }
 
     if (expr instanceof Disjunction) {
@@ -331,14 +328,13 @@ class TransferFunctionBuilder {
       String acc = "(";
       TransferResult<String, String> result = new TransferResult<>();
       for (BooleanExpr be : d.getDisjuncts()) {
-        TransferResult<String, String> r = compute(be, pCur.indent());
-        result = result.addChangedVariables(r);
-        acc = acc.equals("(") ? acc + r.getReturnValue() : mkOr(acc, r.getReturnValue());
+        String r = compute(be, pCur.indent());
+        acc = acc.equals("(") ? acc + r : mkOr(acc, r);
       }
       pCur.debug("has changed variable");
-      return result.setReturnValue(acc + ")");
+      return (acc + ")");
     }
-
+/*
     if (expr instanceof ConjunctionChain) {
       pCur.debug("ConjunctionChain");
       ConjunctionChain d = (ConjunctionChain) expr;
@@ -391,13 +387,13 @@ class TransferFunctionBuilder {
         pCur.debug("DisjunctionChain Result: " + acc);
         return result.setReturnValue(acc);
       }
-    }
+    } */
 
     if (expr instanceof Not) {
       pCur.debug("mkNot");
       Not n = (Not) expr;
-      TransferResult<String, String> result = compute(n.getExpr(), pCur);
-      return result.setReturnValue(mkNot(result.getReturnValue()));
+      String result = compute(n.getExpr(), pCur);
+      return mkNot(result);
     }
 
     if (expr instanceof MatchProtocol) {
@@ -405,7 +401,7 @@ class TransferFunctionBuilder {
       Protocol proto = Protocol.fromRoutingProtocol(mp.getProtocol());
       if (proto == null) {
         pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): false");
-        return fromExpr("false");
+        return "false";
       }
 
       int x;
@@ -422,33 +418,33 @@ class TransferFunctionBuilder {
       }
       String protoMatch = "(isProtocol " + pCur.getData().get_protocol() + " " + x + ")";
       pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): " + protoMatch);
-      return fromExpr(protoMatch);
+      return protoMatch;
     }
 
     if (expr instanceof MatchPrefixSet) {
       pCur.debug("MatchPrefixSet");
       MatchPrefixSet m = (MatchPrefixSet) expr;
       // For BGP, may change prefix length
-      TransferResult<String, String> result =
-          matchPrefixSet(_conf, m.getPrefixSet(), pCur.getData());
-      return result.setReturnAssignedValue("true");
+      return matchPrefixSet(_conf, m.getPrefixSet(), pCur.getData());
 
       // TODO: implement me
     } else if (expr instanceof MatchPrefix6Set) {
       pCur.debug("MatchPrefix6Set");
-      return fromExpr("false");
+      return "false";
 
-    } else if (expr instanceof CallExpr) {
+    }
+    else if (expr instanceof CallExpr) {
       pCur.debug("CallExpr");
       // TODO: the call can modify certain fields, need to keep track of these variables
       CallExpr c = (CallExpr) expr;
       String name = c.getCalledPolicyName();
       RoutingPolicy pol = _conf.getRoutingPolicies().get(name);
       pCur = pCur.setCallContext(TransferParam.CallContext.EXPR_CALL);
-      TransferResult<String, String> r =
-          compute(pol.getStatements(), pCur.indent().enterScope(name), initialResult());
-      pCur.debug("CallExpr (return): " + r.getReturnValue());
-      pCur.debug("CallExpr (fallthrough): " + r.getFallthroughValue());
+      pCur.debug("CallExpr " + name + "(stmts): ");
+      printStatements(pol.getStatements());
+      String r = compute(pol.getStatements(), pCur.indent().enterScope(name), true);
+      pCur.debug("CallExpr " + name + " (return): " + r);
+//      pCur.debug("CallExpr (fallthrough): " + r.getFallthroughValue());
       return r;
 
     } else if (expr instanceof WithEnvironmentExpr) {
@@ -461,23 +457,23 @@ class TransferFunctionBuilder {
     } else if (expr instanceof MatchCommunitySet) {
       pCur.debug("MatchCommunitySet");
       MatchCommunitySet mcs = (MatchCommunitySet) expr;
-      return fromExpr(matchCommunitySet(_conf, mcs.getExpr(), pCur.getData()));
+      return matchCommunitySet(_conf, mcs.getExpr(), pCur.getData());
 
     } else if (expr instanceof BooleanExprs.StaticBooleanExpr) {
       BooleanExprs.StaticBooleanExpr b = (BooleanExprs.StaticBooleanExpr) expr;
       switch (b.getType()) {
         case CallExprContext:
           pCur.debug("CallExprContext");
-          return fromExpr(mkBool(pCur.getCallContext() == TransferParam.CallContext.EXPR_CALL));
+          return mkBool(pCur.getCallContext() == TransferParam.CallContext.EXPR_CALL);
         case CallStatementContext:
           pCur.debug("CallStmtContext");
-          return fromExpr(mkBool(pCur.getCallContext() == TransferParam.CallContext.STMT_CALL));
+          return mkBool(pCur.getCallContext() == TransferParam.CallContext.STMT_CALL);
         case True:
           pCur.debug("True");
-          return fromExpr("true");
+          return "true";
         case False:
           pCur.debug("False");
-          return fromExpr("false");
+          return "false";
         default:
           throw new BatfishException(
               "Unhandled " + BooleanExprs.class.getCanonicalName() + ": " + b.getType());
@@ -485,7 +481,7 @@ class TransferFunctionBuilder {
     } else if (expr instanceof MatchAsPath) {
       pCur.debug("MatchAsPath");
       System.out.println("Warning: use of unimplemented feature MatchAsPath");
-      return fromExpr("false");
+      return "false";
     }
 
     String s = (_isExport ? "export" : "import");
@@ -533,20 +529,6 @@ class TransferFunctionBuilder {
     throw new BatfishException("Error[prependLength]: unreachable");
   }
 
-  /*
-   * Create a new variable reflecting the final return value of the function
-   */
-  private TransferResult<String, String> returnValue(TransferResult<String, String> r, boolean val) {
-    String b = mkIf(r.getReturnAssignedValue(), r.getReturnValue(), "" + val);
-    return r.setReturnValue(b).setReturnAssignedValue("true").addChangedVariable("RETURN", b);
-  }
-
-  private TransferResult<String, String> fallthrough(TransferResult<String, String> r) {
-    String b = mkIf(r.getReturnAssignedValue(), r.getFallthroughValue(), "true");
-    return r.setFallthroughValue(b)
-        .setReturnAssignedValue("true")
-        .addChangedVariable("FALLTHROUGH", b);
-  }
 
   private void updateSingleValue(TransferParam<Environment> p, String variableName, String expr) {
     switch (variableName) {
@@ -663,68 +645,6 @@ class TransferFunctionBuilder {
   }
 
   /*
-   * The [phi] function from SSA that merges variables that may differ across
-   * different branches of an If statement.
-   */
-  private Pair<String, String> joinPoint(
-      TransferParam<Environment> p,
-      TransferResult<String, String> r,
-      String guard,
-      Pair<String, Pair<String, String>> values) {
-    String variableName = values.getFirst();
-    String trueBranch = values.getSecond().getFirst();
-    String falseBranch = values.getSecond().getSecond();
-
-    if (variableName.equals("RETURN") || variableName.equals("FALLTHROUGH")) {
-      String t =
-          (trueBranch == null
-              ? "false"
-              : trueBranch); // can use False because the value has not been assigned
-      String f = (falseBranch == null ? "false" : falseBranch);
-      String tass = (trueBranch == null ? r.getReturnAssignedValue() : "true");
-      String fass = (falseBranch == null ? r.getReturnAssignedValue() : "true");
-      String newAss = mkIf(guard, tass, fass);
-      String variable =
-          (variableName.equals("RETURN") ? r.getReturnValue() : r.getFallthroughValue());
-      String newValue = mkIf(r.getReturnAssignedValue(), variable, mkIf(guard, t, f));
-      return new Pair<>(newValue, newAss);
-    }
-    if (variableName.equals("ADMIN-DIST")) {
-      String t = (trueBranch == null ? p.getData().get_ad() : trueBranch);
-      String f = (falseBranch == null ? p.getData().get_ad() : falseBranch);
-      String newValue = mkIf(guard, t, f);
-      newValue = mkIf(r.getReturnAssignedValue(), p.getData().get_ad(), newValue);
-      p.getData().set_ad(newValue);
-      return new Pair<>(newValue, null);
-    }
-    if (variableName.equals("LOCAL-PREF")) {
-      String t = (trueBranch == null ? p.getData().get_lp() : trueBranch);
-      String f = (falseBranch == null ? p.getData().get_lp() : falseBranch);
-      String newValue = mkIf(guard, t, f);
-      newValue = mkIf(r.getReturnAssignedValue(), p.getData().get_lp(), newValue);
-      p.getData().set_lp(newValue);
-      return new Pair<>(newValue, null);
-    }
-    if (variableName.equals("METRIC")) {
-      String t = (trueBranch == null ? p.getData().get_cost() : trueBranch);
-      String f = (falseBranch == null ? p.getData().get_cost() : falseBranch);
-      String newValue = mkIf(guard, t, f);
-      newValue = mkIf(r.getReturnAssignedValue(), p.getData().get_cost(), newValue);
-      p.getData().set_cost(newValue);
-      return new Pair<>(newValue, null);
-    }
-    if (variableName.equals("COMMUNITIES")) {
-      String t = (trueBranch == null ? p.getData().get_communities() : trueBranch);
-      String f = (falseBranch == null ? p.getData().get_communities() : falseBranch);
-      String newValue = mkIf(guard, t, f);
-      newValue = mkIf(r.getReturnAssignedValue(), p.getData().get_communities(), newValue);
-      p.getData().set_communities(newValue);
-      return new Pair<>(newValue, null);
-    }
-    throw new BatfishException("[joinPoint]: unhandled case for " + variableName);
-  }
-
-  /*
    * Apply the effect of modifying an integer value (e.g., to set the local pref)
    */
   private String applyIntExprModification(String x, IntExpr e) {
@@ -743,95 +663,122 @@ class TransferFunctionBuilder {
     throw new BatfishException("TODO: int expr transfer function: " + e);
   }
 
+
+  private String computeReturn(TransferParam<Environment> p, boolean accept) {
+    return (accept ?
+        "(Some {bgpAd= "
+            + p.getData().get_ad()
+            + "; "
+            + "lp= "
+            + p.getData().get_lp()
+            + "; "
+            + "aslen= "
+            + p.getData().get_cost()
+            + " + 1"
+            + "; "
+            + "med= "
+            + p.getData().get_med()
+            + ";"
+            + "comms= "
+            + p.getData().get_communities()
+            + ";})" : "None");
+  }
+
   /*
    * Convert a list of statements into an NV expression for the transfer function.
    */
-  private TransferResult<String, String> compute(
-      List<Statement> statements,
+  private String compute(
+      List<Statement> stmts,
       TransferParam<Environment> p,
-      TransferResult<String, String> result) {
+      Boolean boolType) {
 
-    TransferParam<Environment> curP = p;
-    TransferResult<String, String> curResult = result;
-    boolean doesReturn = false;
+    List<Statement> statements = new ArrayList<>(stmts);
+    System.out.println("List of statements");
+    statements.forEach(stmt -> System.out.println(stmt));
+    String result = "";
+    if (statements.isEmpty()) {
+      return result;
+    }
+    else {
+      Statement stmt = statements.remove(0);
+      System.out.println("Executing " + stmt.toString() + " comms: " + p.getData().get_communities() + "\n");
 
-    for (ListIterator<Statement> iter = statements.listIterator(); iter.hasNext(); ) {
-      Statement stmt = iter.next();
-      System.out.println("Executing " + stmt.toString() + " comms: " + curP.getData().get_communities() + "\n");
+      boolean doesReturn = false;
+
       if (stmt instanceof StaticStatement) {
         StaticStatement ss = (StaticStatement) stmt;
 
         switch (ss.getType()) {
           case ExitAccept:
             doesReturn = true;
-            curP.debug("ExitAccept");
-            curResult = returnValue(curResult, true);
-            break;
+            p.debug("ExitAccept");
 
-            // TODO: implement proper unsuppression of routes covered by aggregates
+            return boolType ? "true" : computeReturn(p, true);
+           // curResult = returnValue(curResult, true);
+
+        // TODO: implement proper unsuppression of routes covered by aggregates
           case Unsuppress:
           case ReturnTrue:
             doesReturn = true;
-            curP.debug("ReturnTrue");
-            curResult = returnValue(curResult, true);
-            break;
+            p.debug("ReturnTrue");
+            return boolType ? "true" : computeReturn(p, true);
+           // curResult = returnValue(curResult, true);
 
           case ExitReject:
             doesReturn = true;
-            curP.debug("ExitReject");
-            curResult = returnValue(curResult, false);
-            break;
+            p.debug("ExitReject");
+            return boolType ? "false" : computeReturn(p, false);
+           // curResult = returnValue(curResult, false);
 
             // TODO: implement proper suppression of routes covered by aggregates
           case Suppress:
           case ReturnFalse:
             doesReturn = true;
-            curP.debug("ReturnFalse");
-            curResult = returnValue(curResult, false);
-            break;
+            p.debug("ReturnFalse");
+            return boolType ? "false" : computeReturn(p, false);
+           // curResult = returnValue(curResult, false);
 
           case SetDefaultActionAccept:
-            curP.debug("SetDefaulActionAccept");
-            curP = curP.setDefaultAccept(true);
+            p.debug("SetDefaulActionAccept");
+            p = p.setDefaultAccept(true);
             break;
 
           case SetDefaultActionReject:
-            curP.debug("SetDefaultActionReject");
-            curP = curP.setDefaultAccept(false);
+            p.debug("SetDefaultActionReject");
+            p = p.setDefaultAccept(false);
             break;
 
           case SetLocalDefaultActionAccept:
-            curP.debug("SetLocalDefaultActionAccept");
-            curP = curP.setDefaultAcceptLocal(true);
+            p.debug("SetLocalDefaultActionAccept");
+            p = p.setDefaultAcceptLocal(true);
             break;
 
           case SetLocalDefaultActionReject:
-            curP.debug("SetLocalDefaultActionReject");
-            curP = curP.setDefaultAcceptLocal(false);
+            p.debug("SetLocalDefaultActionReject");
+            p = p.setDefaultAcceptLocal(false);
             break;
 
           case ReturnLocalDefaultAction:
-            curP.debug("ReturnLocalDefaultAction");
+            p.debug("ReturnLocalDefaultAction");
             // TODO: need to set local default action in an environment
-            if (curP.getDefaultAcceptLocal()) {
-              curResult = returnValue(curResult, true);
+            if (p.getDefaultAcceptLocal()) {
+              return boolType ? "true" : computeReturn(p, true);
             } else {
-              curResult = returnValue(curResult, false);
+              return boolType ? "false" : computeReturn(p, false);
             }
-            break;
 
           case FallThrough:
-            curP.debug("Fallthrough");
-            curResult = fallthrough(curResult);
+            p.debug("Fallthrough");
+        //    curResult = fallthrough(curResult);
             break;
 
           case Return:
             // TODO: assumming this happens at the end of the function, so it is ignored for now.
-            curP.debug("Return");
+            p.debug("Return");
             break;
 
           case RemovePrivateAs:
-            curP.debug("RemovePrivateAs");
+            p.debug("RemovePrivateAs");
             System.out.println("Warning: use of unimplemented feature RemovePrivateAs");
             break;
 
@@ -840,81 +787,51 @@ class TransferFunctionBuilder {
         }
 
       } else if (stmt instanceof If) {
-        curP.debug("If");
+        p.debug("If");
         If i = (If) stmt;
-        TransferResult<String, String> r = compute(i.getGuard(), curP);
-        curResult = curResult.addChangedVariables(r);
-        String guard = r.getReturnValue();
+        String guard = compute(i.getGuard(), p);
         String str = guard;
 
-        // If there are updates in the guard, add them to the parameter p before entering branches
-        for (Pair<String, String> changed : r.getChangedVariables()) {
-          curP.debug("CHANGED_IN_GUARD: " + changed.getFirst());
-          updateSingleValue(curP, changed.getFirst(), changed.getSecond());
-        }
-
-        curP.debug("guard: " + str);
+        p.debug("guard uncompiled: " + i.getGuard().toString());
+        p.debug("guard: " + str);
+        List<Statement> statementsFall;
         // If we know the branch ahead of time, then specialize
         switch (str) {
           case "true":
-            curP.debug("True Branch");
-            curResult = compute(i.getTrueStatements(), curP.indent(), curResult);
-            break;
+            p.debug("True Branch");
+            return compute(i.getTrueStatements(), p.indent(), boolType);
           case "false":
-            curP.debug("False Branch");
-            compute(i.getFalseStatements(), curP.indent(), curResult);
-            break;
+            p.debug("False Branch");
+            statementsFall = new ArrayList<>(i.getFalseStatements());
+            statementsFall.addAll(i.getFalseStatements().size(),statements);
+            return compute(statementsFall, p.indent(), boolType);
           default:
-            curP.debug("True Branch");
+            p.debug("True Branch");
             // clear changed variables before proceeding
             Environment env;
-            TransferParam<Environment> p1 = curP.indent().setData(curP.getData().deepCopy());
-            TransferParam<Environment> p2 = curP.indent().setData(curP.getData().deepCopy());
+            TransferParam<Environment> p1 = p.indent().setData(p.getData().deepCopy());
+            TransferParam<Environment> p2 = p.indent().setData(p.getData().deepCopy());
 
-            TransferResult<String, String> trueBranch =
-                compute(i.getTrueStatements(), p1, initialResult());
-            curP.debug("False Branch");
-            TransferResult<String, String> falseBranch =
-                compute(i.getFalseStatements(), p2, initialResult());
-            curP.debug("JOIN");
+            String trueBranch = compute(i.getTrueStatements(), p1, boolType);
+            p.debug("False Branch");
+            statementsFall = new ArrayList<>(i.getFalseStatements());
+            statementsFall.addAll(i.getFalseStatements().size(),statements);
+            statementsFall.forEach(st -> System.out.println(st.toString()));
 
-            PList<Pair<String, Pair<String, String>>> pairs =
-                trueBranch.mergeChangedVariables(falseBranch);
+            String falseBranch = compute(statementsFall, p2, boolType);
 
-            // Extract and deal with the return value first so that other
-            // variables have this reflected in their value
-            int idx = pairs.find(pair -> pair.getFirst().equals("RETURN"));
-            if (idx >= 0) {
-              Pair<String, Pair<String, String>> ret = pairs.get(idx);
-              pairs = pairs.minus(idx);
-              pairs = pairs.plus(pairs.size(), ret);
-            }
+            System.out.println("True branch: " + trueBranch);
+            System.out.println("False branch: " + falseBranch);
 
-            for (Pair<String, Pair<String, String>> pair : pairs) {
-              String s = pair.getFirst();
-              curP.debug("CHANGED: " + s);
-              Pair<String, String> x = joinPoint(curP, curResult, guard, pair);
-              curResult = curResult.addChangedVariable(s, x.getFirst());
-              if (s.equals("RETURN")) {
-                curResult =
-                    curResult.setReturnValue(x.getFirst()).setReturnAssignedValue(x.getSecond());
-              }
-              if (s.equals("FALLTHROUGH")) {
-                curResult =
-                    curResult
-                        .setFallthroughValue(x.getFirst())
-                        .setReturnAssignedValue(x.getSecond());
-              }
-            }
-
-            break;
+            result = mkIf(guard, trueBranch, falseBranch);
+            p.debug("IF RESULT:" + result);
+            return result;
         }
 
       } else if (stmt instanceof SetDefaultPolicy) {
-        curP.debug("SetDefaultPolicy");
-        curP = curP.setDefaultPolicy((SetDefaultPolicy) stmt);
-
-      } else if (stmt instanceof SetMetric) {
+        p.debug("SetDefaultPolicy");
+        p = p.setDefaultPolicy((SetDefaultPolicy) stmt);
+      } /* else if (stmt instanceof SetMetric) {
         curP.debug("SetMetric");
 
         SetMetric sm = (SetMetric) stmt;
@@ -924,38 +841,40 @@ class TransferFunctionBuilder {
         curP.getData().set_cost(newValue);
         curResult = curResult.addChangedVariable("METRIC", newValue);
 
-      } else if (stmt instanceof AddCommunity) {
-        curP.debug("AddCommunity");
+      } */
+      else if (stmt instanceof AddCommunity) {
+        p.debug("AddCommunity");
         AddCommunity ac = (AddCommunity) stmt;
         Set<CommunityVar> comms = collectCommunityVars(_conf, ac.getExpr());
 
         // set[x := true][y := true]
-        String commExpr = curP.getData().get_communities();
+        String commExpr = p.getData().get_communities();
         String newValue = "";
         for (CommunityVar cvar : comms) {
           newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
         }
-        newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
-        curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
+        newValue = commExpr + newValue;
+        p.getData().set_communities(newValue);
+        //curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
       } else if (stmt instanceof SetCommunity) {
-        curP.debug("SetCommunity");
+        p.debug("SetCommunity");
         SetCommunity sc = (SetCommunity) stmt;
         Set<CommunityVar> comms = collectCommunityVars(_conf, sc.getExpr());
 
         // set[x := true][y := true]
-        String commExpr = curP.getData().get_communities();
+        String commExpr = p.getData().get_communities();
         String newValue = "";
         for (CommunityVar cvar : comms) {
           newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
         }
-        System.out.println("RESULT:" + curResult.getReturnAssignedValue());
-        newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
-        curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
+//        System.out.println("RESULT:" + curResult.getReturnAssignedValue());
+        newValue = commExpr + newValue;
+        p.getData().set_communities(newValue);
+       // curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
-      } else if (stmt instanceof DeleteCommunity) {
+      }
+      /* else if (stmt instanceof DeleteCommunity) {
         curP.debug("DeleteCommunity");
         DeleteCommunity ac = (DeleteCommunity) stmt;
         Set<CommunityVar> comms = collectCommunityVars(_conf, ac.getExpr());
@@ -974,18 +893,17 @@ class TransferFunctionBuilder {
         curP.debug("RetainCommunity");
         // no op
 
-      } else if (stmt instanceof SetLocalPreference) {
-        curP.debug("SetLocalPreference");
+      } */
+      else if (stmt instanceof SetLocalPreference) {
+        p.debug("SetLocalPreference");
         SetLocalPreference slp = (SetLocalPreference) stmt;
         IntExpr ie = slp.getLocalPreference();
-        String newValue = applyIntExprModification(curP.getData().get_lp(), ie);
-        curP.debug("Value after modification: " + newValue);
-        newValue = mkIf(curResult.getReturnAssignedValue(), curP.getData().get_lp(), newValue);
-        curP.debug("Value after modification: " + newValue);
-        curP.getData().set_lp(newValue);
-        curResult = curResult.addChangedVariable("LOCAL-PREF", newValue);
+        String newValue = applyIntExprModification(p.getData().get_lp(), ie);
+        p.debug("Value after modification: " + newValue);
+        p.getData().set_lp(newValue);
+        //curResult = curResult.addChangedVariable("LOCAL-PREF", newValue);
 
-      } else if (stmt instanceof PrependAsPath) {
+      } /*else if (stmt instanceof PrependAsPath) {
         curP.debug("PrependAsPath");
         PrependAsPath pap = (PrependAsPath) stmt;
         Integer prependCost = prependLength(pap.getExpr());
@@ -1002,7 +920,7 @@ class TransferFunctionBuilder {
         curP.debug("SetNextHop");
         System.out.println("Warning: use of unimplemented feature SetNextHop");
 
-      } else {
+      } */ else {
 
         String s = (_isExport ? "export" : "import");
         String msg =
@@ -1012,51 +930,25 @@ class TransferFunctionBuilder {
 
         throw new BatfishException(msg);
       }
+      return compute(statements,p,boolType);
+    }
     }
 
-    // If this is the outermost call, then we relate the variables
-    if (curP.getInitialCall()) {
-      curP.debug("InitialCall finalizing");
 
-      // Apply the default action
-      if (!doesReturn) {
-        curP.debug("Applying default action: " + curP.getDefaultAccept());
-        if (curP.getDefaultAccept()) {
-          curResult = returnValue(curResult, true);
-        } else {
-          curResult = returnValue(curResult, false);
-        }
-      }
-      String ret = result.getReturnValue();
-      String retVal =
-          mkIf(
-              curResult.getReturnValue(),
-              "(Some {bgpAd= "
-                  + curP.getData().get_ad()
-                  + "; "
-                  + "lp= "
-                  + curP.getData().get_lp()
-                  + "; "
-                  + "aslen= "
-                  + curP.getData().get_cost()
-                  + " + 1"
-                  + "; "
-                  + "med= "
-                  + curP.getData().get_med()
-                  + ";"
-                  + "comms= "
-                  + curP.getData().get_communities()
-                  + ";})",
-              "None");
-      curResult = curResult.setReturnValue(retVal);
+    private void printStatements (List<Statement> stmts) {
+      stmts.forEach(stmt -> {System.out.println("Command\n-------------------");System.out.println(stmt);
+      if (stmt instanceof If) {
+        BooleanExpr g = ((If) stmt).getGuard();
+        System.out.println("guard"); System.out.println(g);
+        System.out.println("True Branch:");printStatements(((If) stmt).getTrueStatements());
+      System.out.println("False Branch");printStatements(((If) stmt).getFalseStatements());} });
     }
-    return curResult;
-  }
 
   public String compute() {
     Environment env = new Environment();
     TransferParam<Environment> p = new TransferParam<>(env, true);
-    TransferResult<String, String> result = compute(_statements, p, initialResult());
-    return result.getReturnValue();
+
+    String result = compute(_statements, p, false);
+    return result;
   }
 }
