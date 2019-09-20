@@ -13,7 +13,21 @@
     <option name="originalFiles">
       <list>
         <option value="$PROJECT_DIR$/projects/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/pom.xml" />
       </list>
+    </option>
+    <option name="ignoredFiles">
+      <set>
+        <option value="$PROJECT_DIR$/projects/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/allinone/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/batfish-client/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/batfish-common-protocol/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/batfish/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/build-tools/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/coordinator/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/pom.xml" />
+        <option value="$USER_HOME$/Library/Mobile Documents/com~apple~CloudDocs/networks/batfish/projects/question/pom.xml" />
+      </set>
     </option>
   </component>
   <component name="NullableNotNullManager">
