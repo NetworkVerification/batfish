@@ -21,6 +21,8 @@ public class Environment implements IDeepCopy<Environment> {
 
   private String _prefixValue;
 
+  private boolean _valid;
+
   public Environment() {
     this._lp = "b.lp";
     this._ad = "b.bgpAd";
@@ -30,6 +32,7 @@ public class Environment implements IDeepCopy<Environment> {
     this._protocol = "x.selected";
     this._prefixLength = "prefixLen";
     this._prefixValue = "prefix";
+    this._valid = false;
   }
 
   public Environment(
@@ -40,7 +43,8 @@ public class Environment implements IDeepCopy<Environment> {
       String communities,
       String protocol,
       String prefixLength,
-      String prefixValue) {
+      String prefixValue,
+      boolean valid) {
     this._lp = lp;
     this._ad = ad;
     this._cost = cost;
@@ -49,6 +53,7 @@ public class Environment implements IDeepCopy<Environment> {
     this._protocol = protocol;
     this._prefixLength = prefixLength;
     this._prefixValue = prefixValue;
+    this._valid = valid;
   }
 
   public String get_prefixValue() {
@@ -115,6 +120,10 @@ public class Environment implements IDeepCopy<Environment> {
     this._protocol = protocol;
   }
 
+  public boolean get_valid() {return _valid; }
+
+  public void set_valid(boolean v) { this._valid = v; }
+
   @Override
   public Environment deepCopy() {
     Environment env = new Environment();
@@ -126,6 +135,7 @@ public class Environment implements IDeepCopy<Environment> {
     env.set_protocol(this.get_protocol());
     env.set_prefixLength(this.get_prefixLength());
     env.set_prefixValue(this.get_prefixValue());
+    env.set_valid(this.get_valid());
     return env;
   }
 }

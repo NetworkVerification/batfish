@@ -5,9 +5,12 @@ import static org.batfish.symbolic.bdd.CommunityVarConverter.toCommunityVar;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
 import org.batfish.datamodel.CommunityList;
@@ -71,50 +74,6 @@ import org.batfish.symbolic.GraphEdge;
 import org.batfish.symbolic.Protocol;
 import org.batfish.symbolic.collections.PList;
 
-/**
- * Class that computes a symbolic transfer function between two symbolic control plane records. The
- * transfer function is used to encode both import and export filters.
- *
- * <p>Batfish represents the AST much like vendors where there is a simple imperative language for
- * matching fields and making modifications to fields. Since this is not a good fit for a
- * declarative symbolic encoding of the network, we convert this stateful representation into a
- * stateless representation
- *
- * <p>The TransferSSA class makes policies stateless by converting the vendor-independent format to
- * a Static Single Assignment (SSA) form where all updates are reflected in new variables. Rather
- * than create a full control flow graph (CFG) as is typically done in SSA, we use a simple
- * conversion based on adding join points for every variable modified in an if statement.
- *
- * <p>The joint point defined as the [phi] function from SSA merges variables that may differ across
- * different branches of an if statement. For example, if there is the following filter:
- *
- * <p>if match(c1) then add community c2 else prepend path 2
- *
- * <p>Then this function will introduce a new variable at the end of the if statement that updates
- * the value of each variable modified based on the branch taken. For example:
- *
- * <p>c2' = (c1 ? true : c2) metric' = (c1 ? metric : metric + 2)
- *
- * <p>To model the return value of functions, we introduce three new variables: [fallthrough],
- * [returnValue] and [returnAssigned]. For example, if we have the following AST function in
- * Batfish:
- *
- * <p>function foo() if match(c1) then reject accept
- *
- * <p>This is modeled by introducing [returnValue] - the value that the function returns, and the
- * [returnAssigned] variable - whether a return or fallthrough statement has been hit so far in the
- * control flow.
- *
- * <p>Naturally, this kind of encoding can grow quite large since we introduce a large number of
- * extra variables. To make formula much simpler, we use a term size heuristic to inline variable
- * equalities when the inlined term will not be too large. Thus, additional variables are still
- * introduced, but only to keep the encoding compact. The 'simplify' and 'propagate-values' tactics
- * for z3 will further improve the encoding by removing any unnecessary variables. In this example,
- * the encoding will be simplified to [returnValue''' = not c1], which removes all intermediate
- * variables
- *
- * @author Ryan Beckett
- */
 class TransferFunctionBuilder {
 
   private static int id = 0;
@@ -294,41 +253,55 @@ class TransferFunctionBuilder {
         .setReturnAssignedValue("false");
   }
 
+  private DecisionTree<Environment>mapEnv(DecisionTree<Boolean> t, DecisionTree<Environment> tEnv, DecisionTree<Environment> fEnv) {
+    
+
+  }
+
   /*
    * Convert a Batfish AST boolean expression to a symbolic Z3 boolean expression
    * by performing inlining of stateful side effects.
    */
-  private String compute(BooleanExpr expr, TransferParam<Environment> p) {
-    TransferParam<Environment> pCur = p;
+  @Nullable
+  private DecisionTree<Boolean> compute(BooleanExpr expr, Node<Boolean> tleaf, Node<Boolean> fleaf) {
     // TODO: right now everything is IPV4
     if (expr instanceof MatchIpv4) {
-      pCur.debug("MatchIpv4");
-      return "true";
+      //pCur.debug("MatchIpv4");
+      Set<Node<Boolean>> s = new HashSet<>();
+      s.add(tleaf);
+      return new DecisionTree<>(tleaf,s);
     }
     if (expr instanceof MatchIpv6) {
-      pCur.debug("MatchIpv6");
-      return "false";
+      //pCur.debug("MatchIpv6");
+      Set<Node<Boolean>> s = new HashSet<>();
+      s.add(fleaf);
+      return new DecisionTree<>(fleaf,s);
     }
 
     if (expr instanceof Conjunction) {
-      pCur.debug("Conjunction");
+      //pCur.debug("Conjunction");
+      //TODO: implement some optimizations such as putting a prefix-expression as root.
       Conjunction c = (Conjunction) expr;
-      String acc = "(";
+      DecisionTree<Boolean> head = null;
       for (BooleanExpr be : c.getConjuncts()) {
-        String r = compute(be, pCur.indent());
-        acc = acc.equals("(") ? acc + r : mkAnd(acc, r);
+        if (head == null) {
+          head = compute(be, tleaf, fleaf);
+        }
+        else {
+          DecisionTree<Boolean> t = compute(be, tleaf, fleaf);
+          head.mergeTrees(t, true);
+        }
       }
-      pCur.debug("has changed variable");
-      return (acc + ")");
+      return head;
     }
 
     if (expr instanceof Disjunction) {
-      pCur.debug("Disjunction");
+      //pCur.debug("Disjunction");
       Disjunction d = (Disjunction) expr;
-      String acc = "(";
-      TransferResult<String, String> result = new TransferResult<>();
+      Node<Boolean> head = null;
+      Node<Boolean> ptr = head;
       for (BooleanExpr be : d.getDisjuncts()) {
-        String r = compute(be, pCur.indent());
+        Node<Boolean> r = compute(be, tleaf, fleaf);
         acc = acc.equals("(") ? acc + r : mkOr(acc, r);
       }
       pCur.debug("has changed variable");
