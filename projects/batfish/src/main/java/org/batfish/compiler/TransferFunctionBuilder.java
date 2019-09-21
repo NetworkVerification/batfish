@@ -197,7 +197,7 @@ class TransferFunctionBuilder {
   }
 
   /*
-   * Converts a prefix set to a boolean expression.
+   * Converts a prefix set to NV expression.
    */
   private String matchPrefixSet(
       Configuration conf, PrefixSetExpr e, Environment other) {
@@ -529,28 +529,6 @@ class TransferFunctionBuilder {
     throw new BatfishException("Error[prependLength]: unreachable");
   }
 
-
-  private void updateSingleValue(TransferParam<Environment> p, String variableName, String expr) {
-    switch (variableName) {
-      case "METRIC":
-        p.getData().set_cost(expr);
-        break;
-      case "ADMIN-DIST":
-        p.getData().set_ad(expr);
-        break;
-      case "LOCAL-PREF":
-        p.getData().set_lp(expr);
-        break;
-      case "RETURN":
-        break;
-      case "COMMUNITIES":
-        p.getData().set_communities(expr);
-        break;
-      default:
-        throw new BatfishException("bad");
-    }
-  }
-
   private String mkIf(String guard, String trueBranch, String falseBranch) {
     if (guard.equals("true")) {
       return trueBranch;
@@ -674,7 +652,7 @@ class TransferFunctionBuilder {
             + "; "
             + "aslen= "
             + p.getData().get_cost()
-            + " + 1"
+            + (_isExport ? " + 1" : "")
             + "; "
             + "med= "
             + p.getData().get_med()
@@ -831,17 +809,14 @@ class TransferFunctionBuilder {
       } else if (stmt instanceof SetDefaultPolicy) {
         p.debug("SetDefaultPolicy");
         p = p.setDefaultPolicy((SetDefaultPolicy) stmt);
-      } /* else if (stmt instanceof SetMetric) {
-        curP.debug("SetMetric");
+      } else if (stmt instanceof SetMetric) {
+        p.debug("SetMetric");
 
         SetMetric sm = (SetMetric) stmt;
         LongExpr ie = sm.getMetric();
-        String newValue = applyLongExprModification(curP.getData().get_cost(), ie);
-        newValue = mkIf(curResult.getReturnAssignedValue(), curP.getData().get_cost(), newValue);
-        curP.getData().set_cost(newValue);
-        curResult = curResult.addChangedVariable("METRIC", newValue);
-
-      } */
+        String newValue = applyLongExprModification(p.getData().get_cost(), ie);
+        p.getData().set_cost(newValue);
+      }
       else if (stmt instanceof AddCommunity) {
         p.debug("AddCommunity");
         AddCommunity ac = (AddCommunity) stmt;
@@ -868,32 +843,27 @@ class TransferFunctionBuilder {
         for (CommunityVar cvar : comms) {
           newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
         }
-//        System.out.println("RESULT:" + curResult.getReturnAssignedValue());
         newValue = commExpr + newValue;
         p.getData().set_communities(newValue);
-       // curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
 
       }
-      /* else if (stmt instanceof DeleteCommunity) {
-        curP.debug("DeleteCommunity");
+      else if (stmt instanceof DeleteCommunity) {
+        p.debug("DeleteCommunity");
         DeleteCommunity ac = (DeleteCommunity) stmt;
         Set<CommunityVar> comms = collectCommunityVars(_conf, ac.getExpr());
 
         // set[x := true][y := true]
-        String commExpr = curP.getData().get_communities();
+        String commExpr = p.getData().get_communities();
         String newValue = "";
         for (CommunityVar cvar : comms) {
           newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= false]";
         }
-        newValue = mkIf(curResult.getReturnAssignedValue(), commExpr, commExpr + newValue);
-        curP.getData().set_communities(newValue);
-        curResult = curResult.addChangedVariable("COMMUNITIES", newValue);
-
+        p.getData().set_communities(commExpr + newValue);
       } else if (stmt instanceof RetainCommunity) {
-        curP.debug("RetainCommunity");
+        p.debug("RetainCommunity");
         // no op
 
-      } */
+      }
       else if (stmt instanceof SetLocalPreference) {
         p.debug("SetLocalPreference");
         SetLocalPreference slp = (SetLocalPreference) stmt;
@@ -903,24 +873,22 @@ class TransferFunctionBuilder {
         p.getData().set_lp(newValue);
         //curResult = curResult.addChangedVariable("LOCAL-PREF", newValue);
 
-      } /*else if (stmt instanceof PrependAsPath) {
-        curP.debug("PrependAsPath");
+      } else if (stmt instanceof PrependAsPath) {
+        p.debug("PrependAsPath");
         PrependAsPath pap = (PrependAsPath) stmt;
         Integer prependCost = prependLength(pap.getExpr());
-        String newValue = curP.getData().get_cost() + " + " + prependCost;
-        newValue = mkIf(curResult.getReturnAssignedValue(), curP.getData().get_cost(), newValue);
-        curP.getData().set_cost(newValue);
-        curResult = curResult.addChangedVariable("METRIC", newValue);
+        String newValue = p.getData().get_cost() + " + " + prependCost;
+        p.getData().set_cost(newValue);
 
       } else if (stmt instanceof SetOrigin) {
-        curP.debug("SetOrigin");
+        p.debug("SetOrigin");
         System.out.println("Warning: use of unimplemented feature SetOrigin");
 
       } else if (stmt instanceof SetNextHop) {
-        curP.debug("SetNextHop");
+        p.debug("SetNextHop");
         System.out.println("Warning: use of unimplemented feature SetNextHop");
 
-      } */ else {
+      } else {
 
         String s = (_isExport ? "export" : "import");
         String msg =
@@ -947,7 +915,6 @@ class TransferFunctionBuilder {
   public String compute() {
     Environment env = new Environment();
     TransferParam<Environment> p = new TransferParam<>(env, true);
-
     String result = compute(_statements, p, false);
     return result;
   }
