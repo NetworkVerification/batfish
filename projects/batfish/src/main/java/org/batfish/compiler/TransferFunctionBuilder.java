@@ -3,6 +3,7 @@ package org.batfish.compiler;
 import static org.batfish.symbolic.CommunityVarCollector.collectCommunityVars;
 import static org.batfish.symbolic.bdd.CommunityVarConverter.toCommunityVar;
 
+import com.sun.tools.doclint.Env;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -13,6 +14,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import org.batfish.common.BatfishException;
 import org.batfish.common.Pair;
+import org.batfish.compiler.TransferParam.CallContext;
 import org.batfish.datamodel.CommunityList;
 import org.batfish.datamodel.CommunityListLine;
 import org.batfish.datamodel.Configuration;
@@ -269,12 +271,15 @@ class TransferFunctionBuilder {
     return resultTree;
   }
 
-  private DecisionTree<Boolean> trivial(BooleanExpr expr, Node<Boolean> t1, Node<Boolean> t2) {
-    Node<Boolean> p = new Node(expr);
-    Set<Node<Boolean>> leaves = new HashSet<>();
+  private DecisionTree<Tuple<Boolean,TransferParam<Environment>>> trivial(BooleanExpr expr,
+      Node<Tuple<Boolean,TransferParam<Environment>>> t1,
+      Node<Tuple<Boolean,TransferParam<Environment>>> t2) {
+
+    Node<Tuple<Boolean,TransferParam<Environment>>> p = new Node<>(expr);
+    Set<Node<Tuple<Boolean,TransferParam<Environment>>>> leaves = new HashSet<>();
     leaves.add(t1);
     leaves.add(t2);
-    DecisionTree<Boolean> t = new DecisionTree<>(p,leaves);
+    DecisionTree<Tuple<Boolean,TransferParam<Environment>>> t = new DecisionTree<>(p,leaves);
     p.setChild(t1,true);
     p.setChild(t2, false);
     return t;
@@ -285,29 +290,32 @@ class TransferFunctionBuilder {
    * by performing inlining of stateful side effects.
    */
   @Nullable
-  private DecisionTree<Boolean> compute(BooleanExpr expr, Node<Boolean> tleaf, Node<Boolean> fleaf) {
+  private DecisionTree<Tuple<Boolean,TransferParam<Environment>>> exprToTree(BooleanExpr expr,
+      TransferParam<Environment> pCur,
+      Node<Tuple<Boolean, TransferParam<Environment>>> tleaf,
+      Node<Tuple<Boolean, TransferParam<Environment>>> fleaf) {
     // TODO: right now everything is IPV4
     if (expr instanceof MatchIpv4) {
-      //pCur.debug("MatchIpv4");
+      pCur.debug("MatchIpv4");
       return new DecisionTree<>(tleaf);
     }
     if (expr instanceof MatchIpv6) {
-      //pCur.debug("MatchIpv6");
+      pCur.debug("MatchIpv6");
       return new DecisionTree<>(fleaf);
     }
 
     if (expr instanceof Conjunction) {
-      //pCur.debug("Conjunction");
+      pCur.debug("Conjunction");
       //TODO: implement some optimizations such as putting a prefix-expression as root.
       Conjunction c = (Conjunction) expr;
-      DecisionTree<Boolean> head = null;
+      DecisionTree<Tuple<Boolean,TransferParam<Environment>>> head = null;
       for (BooleanExpr be : c.getConjuncts()) {
         if (head == null) {
-          head = compute(be, tleaf, fleaf);
+          head = exprToTree(be, pCur, tleaf, fleaf);
         }
         else {
-          DecisionTree<Boolean> t = compute(be, tleaf, fleaf);
-          head.mergeTrees(t, true);
+          DecisionTree<Tuple<Boolean,TransferParam<Environment>>> t = exprToTree(be, pCur, tleaf, fleaf);
+          head.mergeTrees(t, tleaf.getData());
         }
       }
       return head;
@@ -316,14 +324,14 @@ class TransferFunctionBuilder {
     if (expr instanceof Disjunction) {
       //pCur.debug("Disjunction");
       Disjunction d = (Disjunction) expr;
-      DecisionTree<Boolean> head = null;
+      DecisionTree<Tuple<Boolean,TransferParam<Environment>>> head = null;
       for (BooleanExpr be : d.getDisjuncts()) {
         if (head == null) {
-          head = compute(be, tleaf, fleaf);
+          head = exprToTree(be, pCur, tleaf, fleaf);
         }
         else {
-          DecisionTree<Boolean> t = compute(be, tleaf, fleaf);
-          head.mergeTrees(t, false);
+          DecisionTree<Tuple<Boolean,TransferParam<Environment>>> t = exprToTree(be, pCur, tleaf, fleaf);
+          head.mergeTrees(t, fleaf.getData());
         }
       }
       return head;
@@ -384,17 +392,17 @@ class TransferFunctionBuilder {
     } */
 
     if (expr instanceof Not) {
-      //pCur.debug("mkNot");
+      pCur.debug("mkNot");
       // Swap the true and false leafs.
       Not n = (Not) expr;
-      return compute(n.getExpr(), fleaf, tleaf);
+      return exprToTree(n.getExpr(), pCur, fleaf, tleaf);
     }
 
     if (expr instanceof MatchProtocol) {
       MatchProtocol mp = (MatchProtocol) expr;
       Protocol proto = Protocol.fromRoutingProtocol(mp.getProtocol());
       if (proto == null) {
-        //pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): false");
+        pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): false");
         return (new DecisionTree<>(fleaf));
       }
 
@@ -404,24 +412,23 @@ class TransferFunctionBuilder {
     }
 
     if (expr instanceof MatchPrefixSet) {
-      //pCur.debug("MatchPrefixSet");
+      pCur.debug("MatchPrefixSet");
       return trivial(expr, tleaf, fleaf);
     } else if (expr instanceof MatchPrefix6Set) {
       return (new DecisionTree<>(fleaf));
 
     }
     else if (expr instanceof CallExpr) {
-     // pCur.debug("CallExpr");
+      pCur.debug("CallExpr");
       CallExpr c = (CallExpr) expr;
       String name = c.getCalledPolicyName();
       RoutingPolicy pol = _conf.getRoutingPolicies().get(name);
 
-      // TODO: Ignored contexts for now.
-      // pCur = pCur.setCallContext(TransferParam.CallContext.EXPR_CALL);
-      //pCur.debug("CallExpr " + name + "(stmts): ");
+      pCur = pCur.setCallContext(TransferParam.CallContext.EXPR_CALL);
+      pCur.debug("CallExpr " + name + "(stmts): ");
       //compute(pol.getStatements(), pCur.indent().enterScope(name), true)
-      printStatements(pol.getStatements());
-      return ((DecisionTree<Boolean>) compute(pol.getStatements(), true));
+      //printStatements(pol.getStatements());
+      return (statementToBool(pol.getStatements(), pCur, tleaf, fleaf));
       //pCur.debug("CallExpr " + name + " (return): " + r);
 //      pCur.debug("CallExpr (fallthrough): " + r.getFallthroughValue());
 
@@ -430,36 +437,44 @@ class TransferFunctionBuilder {
       // TODO: this is not correct
       WithEnvironmentExpr we = (WithEnvironmentExpr) expr;
       // TODO: postStatements() and preStatements()
-      return compute(we.getExpr(), pCur);
+      return exprToTree(we.getExpr(), pCur, fleaf, tleaf);
 
     } else if (expr instanceof MatchCommunitySet) {
-      pCur.debug("MatchCommunitySet");
-      MatchCommunitySet mcs = (MatchCommunitySet) expr;
-      return matchCommunitySet(_conf, mcs.getExpr(), pCur.getData());
+      //pCur.debug("MatchCommunitySet");
+      return trivial(expr, tleaf, fleaf);
 
     } else if (expr instanceof BooleanExprs.StaticBooleanExpr) {
       BooleanExprs.StaticBooleanExpr b = (BooleanExprs.StaticBooleanExpr) expr;
+      //TODO: CallContext
       switch (b.getType()) {
         case CallExprContext:
           pCur.debug("CallExprContext");
-          return mkBool(pCur.getCallContext() == TransferParam.CallContext.EXPR_CALL);
+          if (pCur.getCallContext() == CallContext.EXPR_CALL) {
+            return (new DecisionTree<>(tleaf));
+          }
+          else {
+            return (new DecisionTree<>(fleaf));
+          }
         case CallStatementContext:
           pCur.debug("CallStmtContext");
-          return mkBool(pCur.getCallContext() == TransferParam.CallContext.STMT_CALL);
+          if (pCur.getCallContext() == CallContext.STMT_CALL) {
+            return (new DecisionTree<>(tleaf));
+          }
+          else {
+            return (new DecisionTree<>(fleaf));
+          }
         case True:
-          pCur.debug("True");
-          return "true";
+          return new DecisionTree<>(tleaf);
         case False:
-          pCur.debug("False");
-          return "false";
+          return new DecisionTree<>(fleaf);
         default:
           throw new BatfishException(
               "Unhandled " + BooleanExprs.class.getCanonicalName() + ": " + b.getType());
       }
     } else if (expr instanceof MatchAsPath) {
-      pCur.debug("MatchAsPath");
+      //pCur.debug("MatchAsPath");
       System.out.println("Warning: use of unimplemented feature MatchAsPath");
-      return "false";
+      return new DecisionTree<>(fleaf);
     }
 
     String s = (_isExport ? "export" : "import");
@@ -469,6 +484,225 @@ class TransferFunctionBuilder {
             expr.toString(), s, _graphEdge.toString());
 
     throw new BatfishException(msg);
+  }
+
+  private DecisionTree<Tuple<Boolean, TransferParam<Environment>>> statementToBool(List<Statement> stmts,
+      TransferParam<Environment> p,
+      Node<Tuple<Boolean, TransferParam<Environment>>> tleaf,
+      Node<Tuple<Boolean, TransferParam<Environment>>> fleaf) {
+
+    List<Statement> statements = new ArrayList<>(stmts);
+    if (statements.isEmpty()) {
+      return null;
+    }
+    else {
+      Statement stmt = statements.remove(0);
+      System.out.println("Executing " + stmt.toString() + "\n");
+
+      if (stmt instanceof StaticStatement) {
+        StaticStatement ss = (StaticStatement) stmt;
+
+        switch (ss.getType()) {
+        case ExitAccept:
+          p.debug("ExitAccept");
+
+          return new DecisionTree<>(tleaf);
+        // TODO: implement proper unsuppression of routes covered by aggregates
+        case Unsuppress:
+        case ReturnTrue:
+          p.debug("ReturnTrue");
+          return new DecisionTree<>(tleaf);
+
+        case ExitReject:
+          p.debug("ExitReject");
+          return new DecisionTree<>(fleaf);
+
+        // TODO: implement proper suppression of routes covered by aggregates
+        case Suppress:
+        case ReturnFalse:
+          p.debug("ReturnFalse");
+          return new DecisionTree<>(fleaf);
+
+        case SetDefaultActionAccept:
+          p.debug("SetDefaulActionAccept");
+          p = p.setDefaultAccept(true);
+          break;
+
+        case SetDefaultActionReject:
+          p.debug("SetDefaultActionReject");
+          p = p.setDefaultAccept(false);
+          break;
+
+        case SetLocalDefaultActionAccept:
+          p.debug("SetLocalDefaultActionAccept");
+          p = p.setDefaultAcceptLocal(true);
+          break;
+
+        case SetLocalDefaultActionReject:
+          p.debug("SetLocalDefaultActionReject");
+          p = p.setDefaultAcceptLocal(false);
+          break;
+
+        case ReturnLocalDefaultAction:
+          p.debug("ReturnLocalDefaultAction");
+          if (p.getDefaultAcceptLocal()) {
+            return new DecisionTree<>(tleaf);
+          } else {
+            return new DecisionTree<>(fleaf);
+          }
+
+        case FallThrough:
+          p.debug("Fallthrough");
+          //    curResult = fallthrough(curResult);
+          break;
+
+        case Return:
+          // TODO: assumming this happens at the end of the function, so it is ignored for now.
+          p.debug("Return");
+          break;
+
+        case RemovePrivateAs:
+          p.debug("RemovePrivateAs");
+          System.out.println("Warning: use of unimplemented feature RemovePrivateAs");
+          break;
+
+        default:
+          throw new BatfishException("TODO: computeTransferFunction: " + ss.getType());
+        }
+
+      } else if (stmt instanceof If) {
+        p.debug("If");
+        If i = (If) stmt;
+
+        // Create new false/true leafs to capture nesting of ifs.
+        Node<Tuple<Boolean,TransferParam<Environment>>> tleafFresh = new Node<>(new Tuple<>(true, p));
+        Node<Tuple<Boolean,TransferParam<Environment>>> fleafFresh = new Node<>(new Tuple<>(false, p));
+        DecisionTree<Tuple<Boolean,TransferParam<Environment>>> guard =
+            exprToTree(i.getGuard(), p, tleafFresh, fleafFresh);
+
+        p.debug("guard uncompiled: " + i.getGuard().toString());
+
+        List<Statement> statementsFall;
+
+        statementsFall = new ArrayList<>(i.getFalseStatements());
+        statementsFall.addAll(i.getFalseStatements().size(), statements);
+        List<Tuple<DecisionTree<Tuple<Boolean, TransferParam<Environment>>>,
+            Node<Tuple<Boolean, TransferParam<Environment>>>>> todo = new ArrayList<>();
+        for (Node<Tuple<Boolean, TransferParam<Environment>>> leaf : guard.getLeafs()) {
+          Boolean branch = leaf.getData().getFirst();
+          //Make fresh environment for this branch
+          TransferParam<Environment> newEnv = leaf.getData().getSecond();
+          Environment newData = newEnv.getData().deepCopy();
+          newEnv = newEnv.indent().setData(newData);
+          Node<Tuple<Boolean,TransferParam<Environment>>> newTleaf = new Node<>(new Tuple<>(true, newEnv));
+          Node<Tuple<Boolean,TransferParam<Environment>>> newFleaf = new Node<>(new Tuple<>(false, newEnv));
+          List<Statement> nextStatements = branch ? i.getTrueStatements() : statementsFall;
+          DecisionTree<Tuple<Boolean, TransferParam<Environment>>> exprTree =
+              statementToBool(nextStatements, newEnv, newTleaf, newFleaf);
+
+          // Gather the trees+leafs to merge, do it outside the loop not to mess up things.
+          todo.add(new Tuple<>(exprTree, leaf));
+        }
+
+        // Merge the trees at the leaf points.
+        for (Tuple<DecisionTree<Tuple<Boolean, TransferParam<Environment>>>,
+            Node<Tuple<Boolean, TransferParam<Environment>>>> t : todo) {
+          guard.mergeAtLeaf(t.getFirst(), t.getSecond());
+        }
+        return guard;
+
+      } else if (stmt instanceof SetDefaultPolicy) {
+        p.debug("SetDefaultPolicy");
+        p = p.setDefaultPolicy((SetDefaultPolicy) stmt);
+      } else if (stmt instanceof SetMetric) {
+        p.debug("SetMetric");
+
+        SetMetric sm = (SetMetric) stmt;
+        LongExpr ie = sm.getMetric();
+        String newValue = applyLongExprModification(p.getData().get_cost(), ie);
+        p.getData().set_cost(newValue);
+      }
+      else if (stmt instanceof AddCommunity) {
+        p.debug("AddCommunity");
+        AddCommunity ac = (AddCommunity) stmt;
+        Set<CommunityVar> comms = collectCommunityVars(_conf, ac.getExpr());
+
+        // set[x := true][y := true]
+        String commExpr = p.getData().get_communities();
+        String newValue = "";
+        for (CommunityVar cvar : comms) {
+          newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
+        }
+        newValue = commExpr + newValue;
+        p.getData().set_communities(newValue);
+
+      } else if (stmt instanceof SetCommunity) {
+        p.debug("SetCommunity");
+        SetCommunity sc = (SetCommunity) stmt;
+        Set<CommunityVar> comms = collectCommunityVars(_conf, sc.getExpr());
+
+        // set[x := true][y := true]
+        String commExpr = p.getData().get_communities();
+        String newValue = "";
+        for (CommunityVar cvar : comms) {
+          newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= true]";
+        }
+        newValue = commExpr + newValue;
+        p.getData().set_communities(newValue);
+
+      }
+      else if (stmt instanceof DeleteCommunity) {
+        p.debug("DeleteCommunity");
+        DeleteCommunity ac = (DeleteCommunity) stmt;
+        Set<CommunityVar> comms = collectCommunityVars(_conf, ac.getExpr());
+
+        // set[x := true][y := true]
+        String commExpr = p.getData().get_communities();
+        String newValue = "";
+        for (CommunityVar cvar : comms) {
+          newValue = newValue + "[" + communityVarToNvValue(cvar) + ":= false]";
+        }
+        p.getData().set_communities(commExpr + newValue);
+      } else if (stmt instanceof RetainCommunity) {
+        p.debug("RetainCommunity");
+        // no op
+
+      }
+      else if (stmt instanceof SetLocalPreference) {
+        p.debug("SetLocalPreference");
+        SetLocalPreference slp = (SetLocalPreference) stmt;
+        IntExpr ie = slp.getLocalPreference();
+        String newValue = applyIntExprModification(p.getData().get_lp(), ie);
+        p.debug("Value after modification: " + newValue);
+        p.getData().set_lp(newValue);
+
+      } else if (stmt instanceof PrependAsPath) {
+        p.debug("PrependAsPath");
+        PrependAsPath pap = (PrependAsPath) stmt;
+        Integer prependCost = prependLength(pap.getExpr());
+        String newValue = p.getData().get_cost() + " + " + prependCost;
+        p.getData().set_cost(newValue);
+
+      } else if (stmt instanceof SetOrigin) {
+        p.debug("SetOrigin");
+        System.out.println("Warning: use of unimplemented feature SetOrigin");
+
+      } else if (stmt instanceof SetNextHop) {
+        p.debug("SetNextHop");
+        System.out.println("Warning: use of unimplemented feature SetNextHop");
+
+      } else {
+
+        String s = (_isExport ? "export" : "import");
+        String msg =
+            String.format(
+                "Unimplemented feature %s for %s transfer function on interface %s",
+                stmt.toString(), s, _graphEdge.toString());
+
+        throw new BatfishException(msg);
+      }
+      return statementToBool(statements,p, tleaf, fleaf);
+    }
   }
 
   /*
@@ -643,33 +877,28 @@ class TransferFunctionBuilder {
   /*
    * Convert a list of statements into an NV expression for the transfer function.
    */
-  private String compute(
+  private DecisionTree<Environment> compute(
       List<Statement> stmts,
-      TransferParam<Environment> p,
-      Boolean boolType) {
+      TransferParam<Environment> p) {
 
     List<Statement> statements = new ArrayList<>(stmts);
     System.out.println("List of statements");
     statements.forEach(stmt -> System.out.println(stmt));
-    String result = "";
     if (statements.isEmpty()) {
-      return result;
+      return null;
     }
     else {
       Statement stmt = statements.remove(0);
-      System.out.println("Executing " + stmt.toString() + " comms: " + p.getData().get_communities() + "\n");
-
-      boolean doesReturn = false;
+      System.out.println("Executing " + stmt.toString() + "\n");
 
       if (stmt instanceof StaticStatement) {
         StaticStatement ss = (StaticStatement) stmt;
 
         switch (ss.getType()) {
           case ExitAccept:
-            doesReturn = true;
             p.debug("ExitAccept");
 
-            return boolType ? "true" : computeReturn(p, true);
+            return computeReturn(p, true);
            // curResult = returnValue(curResult, true);
 
         // TODO: implement proper unsuppression of routes covered by aggregates
