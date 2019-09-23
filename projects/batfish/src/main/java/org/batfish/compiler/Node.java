@@ -13,7 +13,7 @@ public class Node<T> {
   private BooleanExpr _expr;
   //Parent nodes of this node, false represents left, true right.
   //Invariant: we don't keep track of parents for leaves.
-  private List<Tuple<Node<T>, Boolean>> _parents;
+  private List<Tuple<Node, Boolean>> _parents;
   private boolean _leaf; // This language has no sum types so I'll do it the ugly way...
 
   /* Constructor for leafs */
@@ -104,11 +104,11 @@ public class Node<T> {
     this._expr = expr;
   }
 
-  public List<Tuple<Node<T>, Boolean>> getParents() {
+  public List<Tuple<Node, Boolean>> getParents() {
     return _parents;
   }
 
-  public void setParents(List<Tuple<Node<T>, Boolean>> parents) {
+  public void setParents(List<Tuple<Node, Boolean>> parents) {
     this._parents = parents;
   }
 

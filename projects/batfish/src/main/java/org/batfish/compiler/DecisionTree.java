@@ -21,6 +21,12 @@ public class DecisionTree<T> {
     this._leafs = _leafs;
   }
 
+  public DecisionTree(Node _root) {
+    this._root = _root;
+    this._leafs = new HashSet<>();
+    this._leafs.add(_root);
+  }
+
   public void mapLeafs(Consumer<Node<T>> f) {
     _leafs.forEach(f);
   }
@@ -33,7 +39,7 @@ public class DecisionTree<T> {
       for (Node<T> leaf : _leafs) {
         if (leaf.getData().equals(equalVal)) {
           Node<T> root = t._root;
-          for (Tuple<Node<T>, Boolean> parent : leaf.getParents()) {
+          for (Tuple<Node, Boolean> parent : leaf.getParents()) {
             parent.getFirst().setChild(root, parent.getSecond());
           }
         }
@@ -56,6 +62,7 @@ public class DecisionTree<T> {
   public void setLeafs(Set<Node<T>> leafs) {
     this._leafs = leafs;
   }
+
 }
 
 

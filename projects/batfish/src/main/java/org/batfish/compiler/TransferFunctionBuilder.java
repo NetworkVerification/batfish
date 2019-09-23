@@ -73,6 +73,7 @@ import org.batfish.symbolic.CommunityVar;
 import org.batfish.symbolic.GraphEdge;
 import org.batfish.symbolic.Protocol;
 import org.batfish.symbolic.collections.PList;
+import org.batfish.symbolic.utils.Tuple;
 
 class TransferFunctionBuilder {
 
@@ -239,23 +240,44 @@ class TransferFunctionBuilder {
     throw new BatfishException("TODO: match community set");
   }
 
-  /*
-   * Wrap a simple boolean expression return value in a transfer function result
-   */
-  private TransferResult<String, String> fromExpr(String b) {
-    return new TransferResult<String, String>().setReturnAssignedValue("true").setReturnValue(b);
-  }
-
-  private TransferResult<String, String> initialResult() {
-    return new TransferResult<String, String>()
-        .setReturnValue("false")
-        .setFallthroughValue("false")
-        .setReturnAssignedValue("false");
-  }
-
+  /* Maps the leafs of a boolean tree t to the trees tenv and fenv. */
   private DecisionTree<Environment>mapEnv(DecisionTree<Boolean> t, DecisionTree<Environment> tEnv, DecisionTree<Environment> fEnv) {
-    
+    Set<Node<Boolean>> leaves = t.getLeafs();
+    // Keep track whether true/false leafs appeared.
+    boolean tLeafs = false;
+    boolean fLeafs = false;
+    for (Node<Boolean> leaf : leaves) {
+      DecisionTree<Environment> selectedTree = leaf.getData() ? tEnv : fEnv;
+      tLeafs = tLeafs || leaf.getData();
+      fLeafs = fLeafs || (!leaf.getData());
+      Node<Environment> root = selectedTree.getRoot();
+      for (Tuple<Node, Boolean> parent : leaf.getParents()) {
+        parent.getFirst().setChild(root, parent.getSecond());
+      }
+    }
 
+    /* Compute the new leaves */
+    Set<Node<Environment>> newLeaves = new HashSet<>();
+    newLeaves = tLeafs ? tEnv.getLeafs() : newLeaves;
+    if (fLeafs) {
+      newLeaves.addAll(fEnv.getLeafs());
+    }
+    t.setLeafs(null);
+    // hope and pray this will work.
+    DecisionTree<Environment> resultTree = ((DecisionTree<Environment>) (DecisionTree<?>) t);
+    resultTree.setLeafs(newLeaves);
+    return resultTree;
+  }
+
+  private DecisionTree<Boolean> trivial(BooleanExpr expr, Node<Boolean> t1, Node<Boolean> t2) {
+    Node<Boolean> p = new Node(expr);
+    Set<Node<Boolean>> leaves = new HashSet<>();
+    leaves.add(t1);
+    leaves.add(t2);
+    DecisionTree<Boolean> t = new DecisionTree<>(p,leaves);
+    p.setChild(t1,true);
+    p.setChild(t2, false);
+    return t;
   }
 
   /*
@@ -267,15 +289,11 @@ class TransferFunctionBuilder {
     // TODO: right now everything is IPV4
     if (expr instanceof MatchIpv4) {
       //pCur.debug("MatchIpv4");
-      Set<Node<Boolean>> s = new HashSet<>();
-      s.add(tleaf);
-      return new DecisionTree<>(tleaf,s);
+      return new DecisionTree<>(tleaf);
     }
     if (expr instanceof MatchIpv6) {
       //pCur.debug("MatchIpv6");
-      Set<Node<Boolean>> s = new HashSet<>();
-      s.add(fleaf);
-      return new DecisionTree<>(fleaf,s);
+      return new DecisionTree<>(fleaf);
     }
 
     if (expr instanceof Conjunction) {
@@ -298,14 +316,17 @@ class TransferFunctionBuilder {
     if (expr instanceof Disjunction) {
       //pCur.debug("Disjunction");
       Disjunction d = (Disjunction) expr;
-      Node<Boolean> head = null;
-      Node<Boolean> ptr = head;
+      DecisionTree<Boolean> head = null;
       for (BooleanExpr be : d.getDisjuncts()) {
-        Node<Boolean> r = compute(be, tleaf, fleaf);
-        acc = acc.equals("(") ? acc + r : mkOr(acc, r);
+        if (head == null) {
+          head = compute(be, tleaf, fleaf);
+        }
+        else {
+          DecisionTree<Boolean> t = compute(be, tleaf, fleaf);
+          head.mergeTrees(t, false);
+        }
       }
-      pCur.debug("has changed variable");
-      return (acc + ")");
+      return head;
     }
 /*
     if (expr instanceof ConjunctionChain) {
@@ -363,65 +384,49 @@ class TransferFunctionBuilder {
     } */
 
     if (expr instanceof Not) {
-      pCur.debug("mkNot");
+      //pCur.debug("mkNot");
+      // Swap the true and false leafs.
       Not n = (Not) expr;
-      String result = compute(n.getExpr(), pCur);
-      return mkNot(result);
+      return compute(n.getExpr(), fleaf, tleaf);
     }
 
     if (expr instanceof MatchProtocol) {
       MatchProtocol mp = (MatchProtocol) expr;
       Protocol proto = Protocol.fromRoutingProtocol(mp.getProtocol());
       if (proto == null) {
-        pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): false");
-        return "false";
+        //pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): false");
+        return (new DecisionTree<>(fleaf));
       }
 
-      int x;
-      if (proto.isConnected()) {
-        x = 0;
-      } else if (proto.isStatic()) {
-        x = 1;
-      } else if (proto.isOspf()) {
-        x = 2;
-      } else if (proto.isBgp()) {
-        x = 3;
-      } else {
-        throw new BatfishException("invalid protocol: " + proto.name());
-      }
-      String protoMatch = "(isProtocol " + pCur.getData().get_protocol() + " " + x + ")";
-      pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): " + protoMatch);
-      return protoMatch;
+      return trivial(expr, tleaf, fleaf);
+      //String protoMatch = "(isProtocol " + pCur.getData().get_protocol() + " " + x + ")";
+      //pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): " + protoMatch);
     }
 
     if (expr instanceof MatchPrefixSet) {
-      pCur.debug("MatchPrefixSet");
-      MatchPrefixSet m = (MatchPrefixSet) expr;
-      // For BGP, may change prefix length
-      return matchPrefixSet(_conf, m.getPrefixSet(), pCur.getData());
-
-      // TODO: implement me
+      //pCur.debug("MatchPrefixSet");
+      return trivial(expr, tleaf, fleaf);
     } else if (expr instanceof MatchPrefix6Set) {
-      pCur.debug("MatchPrefix6Set");
-      return "false";
+      return (new DecisionTree<>(fleaf));
 
     }
     else if (expr instanceof CallExpr) {
-      pCur.debug("CallExpr");
-      // TODO: the call can modify certain fields, need to keep track of these variables
+     // pCur.debug("CallExpr");
       CallExpr c = (CallExpr) expr;
       String name = c.getCalledPolicyName();
       RoutingPolicy pol = _conf.getRoutingPolicies().get(name);
-      pCur = pCur.setCallContext(TransferParam.CallContext.EXPR_CALL);
-      pCur.debug("CallExpr " + name + "(stmts): ");
+
+      // TODO: Ignored contexts for now.
+      // pCur = pCur.setCallContext(TransferParam.CallContext.EXPR_CALL);
+      //pCur.debug("CallExpr " + name + "(stmts): ");
+      //compute(pol.getStatements(), pCur.indent().enterScope(name), true)
       printStatements(pol.getStatements());
-      String r = compute(pol.getStatements(), pCur.indent().enterScope(name), true);
-      pCur.debug("CallExpr " + name + " (return): " + r);
+      return ((DecisionTree<Boolean>) compute(pol.getStatements(), true));
+      //pCur.debug("CallExpr " + name + " (return): " + r);
 //      pCur.debug("CallExpr (fallthrough): " + r.getFallthroughValue());
-      return r;
 
     } else if (expr instanceof WithEnvironmentExpr) {
-      pCur.debug("WithEnvironmentExpr");
+      //pCur.debug("WithEnvironmentExpr");
       // TODO: this is not correct
       WithEnvironmentExpr we = (WithEnvironmentExpr) expr;
       // TODO: postStatements() and preStatements()
