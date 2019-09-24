@@ -39,7 +39,7 @@ public class DecisionTree<T> {
       for (Node<T> leaf : _leafs) {
         if (leaf.getData().equals(equalVal)) {
           Node<T> root = t._root;
-          for (Tuple<Node, Boolean> parent : leaf.getParents()) {
+          for (Tuple<Node<T>, Boolean> parent : leaf.getParents()) {
             parent.getFirst().setChild(root, parent.getSecond());
           }
         }
@@ -47,11 +47,11 @@ public class DecisionTree<T> {
     }
   }
 
-  public void mergeAtLeaf(@Nullable DecisionTree<T> t, Node<T> targetLeaf) {
+  public void mergeAtLeaf(@Nullable DecisionTree t, Node<T> targetLeaf) {
     if (t != null) {
       if (_leafs.contains(targetLeaf)) {
         Node<T> root = t._root;
-        for (Tuple<Node, Boolean> parent : targetLeaf.getParents()) {
+        for (Tuple<Node<T>, Boolean> parent : targetLeaf.getParents()) {
           parent.getFirst().setChild(root, parent.getSecond());
         }
         _leafs.remove(targetLeaf);

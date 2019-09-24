@@ -417,14 +417,16 @@ public class NVCompiler {
             }
             TransferFunctionBuilder exportTransBuilder =
                 new TransferFunctionBuilder(config, statements, edge, true);
-            String expPolicy = exportTransBuilder.compute();
+            DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
+            TreeCompiler treeCompiler = new TreeCompiler(exportTree, config);
+            String expPolicy = treeCompiler.toNvString();
             // Do import policy
 
             List<Statement> importStatements;
             String impPolicy = "b";
-            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
-            System.out.println("Original edge: " + edge.toString());
-            System.out.println("Inverse edge: " + invEdge.toString());
+            // Ignore import policy for now.
+
+/*            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
             if (invEdge != null) {
               String otherRouter = invEdge.getRouter();
               RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter, Protocol.BGP, invEdge);
@@ -435,7 +437,7 @@ public class NVCompiler {
                     new TransferFunctionBuilder(invConfig, importStatements, invEdge, false);
                 impPolicy = importTransBuilder.compute();
               }
-            }
+            }*/
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
               sb.append("\n    let b = " + expPolicy + "\n    in\n");
