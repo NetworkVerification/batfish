@@ -76,7 +76,7 @@ class TransferFunctionBuilder {
   private DecisionTree<Boolean> trivial(BooleanExpr expr, TransferParam<Environment> env,
       Node<Boolean> t1, Node<Boolean> t2) {
 
-    Node<Boolean> p = new Node<>(expr, env);
+    Node<Boolean> p = new Node<>(expr, env, _isExport);
     Set<Node<Boolean>> leaves = new HashSet<>();
     leaves.add(t1);
     leaves.add(t2);
@@ -108,18 +108,25 @@ class TransferFunctionBuilder {
       DecisionTree<Boolean> head = null;
       for (BooleanExpr be : c.getConjuncts()) {
         if (head == null) {
+          System.out.println("\nFirst conjunct " + be.toString());
           head = exprToTree(be, pCur, tleaf, fleaf);
         }
         else {
-          DecisionTree<Boolean> t = exprToTree(be, pCur, tleaf, fleaf);
-          head.mergeAtLeaf(t, tleaf);
+          System.out.println("Additional conjunct: ");
+          head.printTree();
+          System.out.println("\nConjuncting " + be.toString());
+          System.out.println("TLEAF before: " + tleaf + "," + tleaf.getEnv().getData().get_communities());
+          head = continuationExpr(head, pCur, tleaf, fleaf, be, true);
+          System.out.println("Head after conjunction: ");
+          head.printTree();
         }
       }
+      System.out.println("END conjunction: ");
       return head;
     }
 
     if (expr instanceof Disjunction) {
-      //pCur.debug("Disjunction");
+      pCur.debug("Disjunction");
       Disjunction d = (Disjunction) expr;
       DecisionTree<Boolean> head = null;
       for (BooleanExpr be : d.getDisjuncts()) {
@@ -127,8 +134,12 @@ class TransferFunctionBuilder {
           head = exprToTree(be, pCur, tleaf, fleaf);
         }
         else {
-          DecisionTree<Boolean> t = exprToTree(be, pCur, tleaf, fleaf);
-          head.mergeAtLeaf(t, fleaf);
+          //DecisionTree<Boolean> t = exprToTree(be, pCur, tleaf, fleaf);
+          System.out.println("Head at disjunction: ");
+          head.printTree();
+          head = continuationExpr(head, pCur, tleaf, fleaf, be, false);
+          System.out.println("Head after disjunction: ");
+          head.printTree();
         }
       }
       return head;
@@ -203,9 +214,10 @@ class TransferFunctionBuilder {
         return (new DecisionTree<>(fleaf));
       }
 
+      pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): ");
       return trivial(expr, pCur, tleaf, fleaf);
       //String protoMatch = "(isProtocol " + pCur.getData().get_protocol() + " " + x + ")";
-      //pCur.debug("MatchProtocol(" + mp.getProtocol().protocolName() + "): " + protoMatch);
+
     }
 
     if (expr instanceof MatchPrefixSet) {
@@ -239,7 +251,7 @@ class TransferFunctionBuilder {
       // TODO: this is not correct
       WithEnvironmentExpr we = (WithEnvironmentExpr) expr;
       // TODO: postStatements() and preStatements()
-      return exprToTree(we.getExpr(), pCur, fleaf, tleaf);
+      return exprToTree(we.getExpr(), pCur, tleaf, fleaf);
 
     } else if (expr instanceof MatchCommunitySet) {
       //pCur.debug("MatchCommunitySet");
@@ -394,13 +406,13 @@ class TransferFunctionBuilder {
         If i = (If) stmt;
 
         // Create new false/true leafs to capture nesting of ifs.
-        Node<Boolean> tleafFresh = new Node<>(true, p);
-        Node<Boolean> fleafFresh = new Node<>(false, p);
+        Node<Boolean> tleafFresh = new Node<>(true, p, _isExport);
+        Node<Boolean> fleafFresh = new Node<>(false, p, _isExport);
         DecisionTree<Boolean> guard =
             exprToTree(i.getGuard(), p, tleafFresh, fleafFresh);
 
         p.debug("guard uncompiled: " + i.getGuard().toString());
-
+        guard.printTree();
         List<Statement> statementsFall;
 
         statementsFall = new ArrayList<>(i.getFalseStatements());
@@ -412,8 +424,8 @@ class TransferFunctionBuilder {
           TransferParam<Environment> newEnv = leaf.getEnv();
           Environment newData = newEnv.getData().deepCopy();
           newEnv = newEnv.indent().setData(newData);
-          Node<Boolean> newTleaf = new Node<>(true, newEnv);
-          Node<Boolean> newFleaf = new Node<>(false, newEnv);
+          Node<Boolean> newTleaf = new Node<>(true, newEnv, _isExport);
+          Node<Boolean> newFleaf = new Node<>(false, newEnv, _isExport);
           List<Statement> nextStatements = branch ? i.getTrueStatements() : statementsFall;
           DecisionTree<Boolean> exprTree =
               statementToBool(nextStatements, newEnv, newTleaf, newFleaf);
@@ -426,6 +438,10 @@ class TransferFunctionBuilder {
         for (Tuple<DecisionTree<Boolean>, Node<Boolean>> t : todo) {
           guard.mergeAtLeaf(t.getFirst(), t.getSecond());
         }
+
+        System.out.println("Final computed boolIf: ");
+        guard.printTree();
+
         return guard;
 
       } else if (stmt instanceof SetDefaultPolicy) {
@@ -700,8 +716,10 @@ class TransferFunctionBuilder {
         If i = (If) stmt;
 
         // Create false/true leafs.
-        Node<Boolean> tleafFresh = new Node<>(true, p);
-        Node<Boolean> fleafFresh = new Node<>(false, p);
+        Node<Boolean> tleafFresh = new Node<>(true, p, _isExport);
+        Node<Boolean> fleafFresh = new Node<>(false, p, _isExport);
+
+        p.debug("Now computing the guard: ");
         DecisionTree<Boolean> guard =
             exprToTree(i.getGuard(), p, tleafFresh, fleafFresh);
 
@@ -716,13 +734,15 @@ class TransferFunctionBuilder {
         // to avoid changing the leafs during the loop over the leafs.
         List<Tuple<DecisionTree<Boolean>, Node<Boolean>>> todo = new ArrayList<>();
 
+        System.out.println("Printing the if-guard at stateful if");
+        guard.printTree();
         for (Node<Boolean> leaf : guard.getLeafs()) {
           Boolean branch = leaf.getData();
           //Make fresh environment for this branch
           TransferParam<Environment> newEnv = leaf.getEnv();
           Environment newData = newEnv.getData().deepCopy();
           newEnv = newEnv.indent().setData(newData);
-          Node<Boolean> newNodeP = new Node<>(true, newEnv); //boolean value doesn't matter
+          Node<Boolean> newNodeP = new Node<>(true, newEnv, _isExport); //boolean value doesn't matter
           List<Statement> nextStatements = branch ? i.getTrueStatements() : statementsFall;
           DecisionTree<Boolean> stmtTree = compute(nextStatements, newNodeP);
 
@@ -847,7 +867,56 @@ class TransferFunctionBuilder {
   public DecisionTree<Boolean> compute() {
     Environment env = new Environment();
     TransferParam<Environment> p = new TransferParam<>(env, true);
-    Node<Boolean> nodeP = new Node<>(true, p);
+    Node<Boolean> nodeP = new Node<>(true, p, _isExport);
     return compute(_statements, nodeP);
   }
+
+  private DecisionTree<Boolean> continuationExpr(DecisionTree<Boolean> t, TransferParam<Environment> pCur,
+      Node<Boolean> tleaf, Node<Boolean> fleaf,
+      BooleanExpr be, boolean lr) {
+    List<Tuple<DecisionTree<Boolean>, Node<Boolean>>> todo = new ArrayList<>();
+
+    for (Node<Boolean> leaf : t.getLeafs()) {
+      if (leaf.getData() == lr) {
+        TransferParam<Environment> newEnv = leaf.getEnv();
+        Node<Boolean> newTleaf = tleaf;
+        Node<Boolean> newFleaf = fleaf;
+        if (!newEnv.equals(pCur)) {
+           newTleaf = new Node<>(true, newEnv, _isExport);
+           newFleaf = new Node<>(false, newEnv, _isExport);
+          newEnv = newEnv.deepCopy();
+        }
+
+        DecisionTree<Boolean> res = exprToTree(be, newEnv, newTleaf, newFleaf);
+        todo.add(new Tuple<>(res, leaf));
+      }
+    }
+
+    // Merge the trees at the leaf points.
+    for (Tuple<DecisionTree<Boolean>, Node<Boolean>> elt : todo) {
+      t.mergeAtLeaf(elt.getFirst(), elt.getSecond());
+    }
+    return t;
+  }
+
+  /* Applies it on top of an existing tree (on its leafs) */
+  public DecisionTree<Boolean> compute(DecisionTree<Boolean> t) {
+    List<Tuple<DecisionTree<Boolean>, Node<Boolean>>> todo = new ArrayList<>();
+    for (Node<Boolean> leaf : t.getLeafs()) {
+      TransferParam<Environment> newEnv = leaf.getEnv();
+      Environment newData = newEnv.getData().deepCopy();
+      newEnv = newEnv.indent().setData(newData);
+
+      Node<Boolean> newLeaf = new Node<>(true, newEnv, _isExport);
+      DecisionTree<Boolean> res = compute(_statements, newLeaf);
+      todo.add(new Tuple<>(res, leaf));
+    }
+
+    // Merge the trees at the leaf points.
+    for (Tuple<DecisionTree<Boolean>, Node<Boolean>> elt : todo) {
+      t.mergeAtLeaf(elt.getFirst(), elt.getSecond());
+    }
+    return t;
+  }
+
 }

@@ -1,5 +1,6 @@
 package org.batfish.compiler;
 
+import apple.laf.JRSUIUtils.Tree;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -60,11 +61,11 @@ class InitialAttribute {
         .append(b)
         .append(" in\n")
         .append("    let fib = best (" + c + ") " + "(" + s + ") o b in\n");
-        if (singlePrefix) {
-          sb.append("      {connected="+c+"; static="+s+"; ospf=o; bgp=b; selected=fib;}\n");
-        } else {
-          sb.append("    let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
-        }
+    if (singlePrefix) {
+      sb.append("      {connected="+c+"; static="+s+"; ospf=o; bgp=b; selected=fib;}\n");
+    } else {
+      sb.append("    let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
+    }
 
     return sb.toString();
   }
@@ -418,15 +419,17 @@ public class NVCompiler {
             TransferFunctionBuilder exportTransBuilder =
                 new TransferFunctionBuilder(config, statements, edge, true);
             DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
-            TreeCompiler treeCompiler = new TreeCompiler(exportTree, config);
-            String expPolicy = treeCompiler.toNvString();
-            // Do import policy
+            TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config);
+            String expPolicy = exportTreeCompiler.toNvString();
 
+            // Do import policy
             List<Statement> importStatements;
             String impPolicy = "b";
-            // Ignore import policy for now.
 
-/*            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
+           // DecisionTree<Boolean> policyTree = exportTree;
+            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
+            //TreeCompiler treeCompiler = null;
+
             if (invEdge != null) {
               String otherRouter = invEdge.getRouter();
               RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter, Protocol.BGP, invEdge);
@@ -435,21 +438,36 @@ public class NVCompiler {
                 importStatements = importPolicy.getStatements();
                 TransferFunctionBuilder importTransBuilder =
                     new TransferFunctionBuilder(invConfig, importStatements, invEdge, false);
-                impPolicy = importTransBuilder.compute();
+                DecisionTree<Boolean> importTree = importTransBuilder.compute();
+                TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null);
+                impPolicy = importTreeCompiler.toNvString();
+                //policyTree = importTransBuilder.compute(exportTree);
+                //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
-            }*/
+            }
+
+           /* if (treeCompiler == null) {
+              treeCompiler = new TreeCompiler(policyTree, null, config);
+            }
+
+            String computedPolicy = treeCompiler.toNvString();
+*/
+           /* if (!computedPolicy.equals("None")) {
+              sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+              sb.append("\n    ");
+              sb.append(computedPolicy);
+              sb.append("\n");
+            } */
             if (!expPolicy.equals("None")) {
               sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-              sb.append("\n    let b = " + expPolicy + "\n    in\n");
+              sb.append("\n    let b = \n" + expPolicy + "\n    in\n");
               if (impPolicy.equals("b")) {
                 sb.append("      b\n");
-              }
-              else
-              {
+              } else {
                 sb.append("    (match b with\n")
-                  .append("     | None -> None\n")
-                  .append("     | Some b -> \n")
-                  .append("      " + impPolicy + ")\n");
+                    .append("     | None -> None\n")
+                    .append("     | Some b -> \n")
+                    .append("      " + impPolicy + ")\n");
               }
             }
           }

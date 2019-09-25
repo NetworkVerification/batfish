@@ -52,7 +52,7 @@ public final class NVFunctions {
     if (x.equals("false")) {
       return y;
     }
-    if (y.equals("false")) {
+    if (y.equals("false") || y.equals("(false)")) {
       return x;
     }
     if (x.equals("true") || y.equals("true")) {

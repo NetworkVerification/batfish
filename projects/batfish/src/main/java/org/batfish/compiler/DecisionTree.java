@@ -1,60 +1,67 @@
 package org.batfish.compiler;
 
+import java.lang.reflect.Array;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
-import javax.annotation.Nullable;
-import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
+import javax.annotation.Nullable;
 import org.batfish.symbolic.utils.Tuple;
-import java.util.stream.Stream;
 
 public class DecisionTree<T> {
 
   private Node<T> _root;
 
   private Set<Node<T>> _leafs;
+  private Set<Node<T>> _allNodes;
 
-  public DecisionTree(Node _root, Set<Node<T>> _leafs) {
+  public DecisionTree(Node<T> _root, Set<Node<T>> _leafs) {
     this._root = _root;
     this._leafs = _leafs;
+    this._allNodes = new HashSet<>();
+    _allNodes.add(_root);
+    _allNodes.addAll(_leafs);
   }
 
-  public DecisionTree(Node _root) {
+  public DecisionTree(Node<T> _root) {
     this._root = _root;
     this._leafs = new HashSet<>();
+    this._allNodes = new HashSet<>();
     this._leafs.add(_root);
+    this._allNodes.add(_root);
   }
 
-  public void mapLeafs(Consumer<Node<T>> f) {
-    _leafs.forEach(f);
-  }
-
-  /* Assumes that the leaves of the tree t are a subset of the this tree (which is true for our use case),
-     so that we don't have to worry about merging leaves */
-  public void mergeTrees( @Nullable DecisionTree<T> t, T equalVal) {
-    if (t != null)
-    {
-      for (Node<T> leaf : _leafs) {
-        if (leaf.getData().equals(equalVal)) {
-          Node<T> root = t._root;
-          for (Tuple<Node<T>, Boolean> parent : leaf.getParents()) {
-            parent.getFirst().setChild(root, parent.getSecond());
-          }
-        }
-      }
-    }
-  }
-
-  public void mergeAtLeaf(@Nullable DecisionTree t, Node<T> targetLeaf) {
+  public void mergeAtLeaf(@Nullable DecisionTree<T> t, Node<T> targetLeaf) {
     if (t != null) {
       if (_leafs.contains(targetLeaf)) {
         Node<T> root = t._root;
-        for (Tuple<Node<T>, Boolean> parent : targetLeaf.getParents()) {
-          parent.getFirst().setChild(root, parent.getSecond());
+        List<Tuple<Node<T>, Boolean>> parents = new ArrayList<>();
+        parents.addAll(targetLeaf.getParents());
+        int sz = parents.size();
+        System.out.print("targetLeaf: " + targetLeaf + " has parents: ");
+        for (int i=0; i < sz; i++) {
+          System.out.print(parents.get(i) + ",");
         }
+        System.out.println("");
+        for (int i=0; i < sz; i++) {
+          Tuple<Node<T>, Boolean> parent = parents.get(i);
+          //System.out.println("Checking parent: " + parent.getFirst());
+          if (_allNodes.contains(parent.getFirst())) {
+            /*System.out.println("Setting parent: " + parent.getFirst());
+            System.out.println("To: ");
+            t.printTree();
+            System.out.println("---------");*/
+            parent.getFirst().setChild(root, parent.getSecond());
+          }
+        }
+        // Remove targetLeaf from the list of leafs.
         _leafs.remove(targetLeaf);
+        _allNodes.remove(targetLeaf);
+        // Add te leafs of t to the list of leafs.
+        _leafs.addAll(t.getLeafs());
+        _allNodes.addAll(t._allNodes);
       }
     }
   }
@@ -63,7 +70,7 @@ public class DecisionTree<T> {
     return _root;
   }
 
-  public void setRoot(Node root) {
+  public void setRoot(Node<T> root) {
     this._root = root;
   }
 
@@ -73,6 +80,26 @@ public class DecisionTree<T> {
 
   public void setLeafs(Set<Node<T>> leafs) {
     this._leafs = leafs;
+  }
+
+  private void printTreeAux (Node<T> head, int i) {
+    if (_leafs.contains(head)) {
+      System.out.println("Leaf: " + head.getData() + "," + head + " @ " + i + " with " + head.getEnv().getData().toString() + "," + head.getEnv().getData().get_communities());
+    } else
+    {
+      System.out.println("Expr, Node: " + head.getExpr() + "," + head + " " + i);
+      System.out.println("Left " + i + ":");
+      printTreeAux(head.getLeft(),i+1);
+      System.out.println("Right " + i + ":");
+      printTreeAux(head.getRight(), i+1);
+    }
+  }
+  public void printTree() {
+    System.out.println("Nodes: ");
+    _allNodes.forEach(n -> System.out.println(n + ", "));
+    System.out.println("-----");
+    printTreeAux(this._root, 0);
+
   }
 
 }

@@ -43,21 +43,14 @@ import org.batfish.symbolic.Protocol;
 public class TreeCompiler {
 
   private DecisionTree<Boolean> _tree;
-  private Configuration _conf;
+  private Configuration _impConf;
+  private Configuration _expConf;
 
-  public TreeCompiler(DecisionTree<Boolean> _tree, Configuration _conf) {
+  public TreeCompiler(DecisionTree<Boolean> _tree, Configuration _impConf, Configuration _expConf) {
     this._tree = _tree;
-    this._conf = _conf;
+    this._impConf = _impConf;
+    this._expConf = _expConf;
   }
-
-  public DecisionTree<Boolean> getTree() {
-    return _tree;
-  }
-
-  public void setTree(DecisionTree<Boolean> tree) {
-    this._tree = tree;
-  }
-
 
   private String firstBitsEqual(String x, long y, int n) {
     assert (n >= 0 && n <= 32);
@@ -193,9 +186,9 @@ public class TreeCompiler {
     throw new BatfishException("TODO: match community set");
   }
 
-  private String computeReturn(TransferParam<Environment> p, int i) {
+  private String computeReturn(TransferParam<Environment> p) {
     return (p.getData().get_valid() ?
-        indent("(Some {bgpAd= "
+        "(Some {bgpAd= "
             + p.getData().get_ad()
             + "; "
             + "lp= "
@@ -210,14 +203,15 @@ public class TreeCompiler {
             + ";"
             + "comms= "
             + p.getData().get_communities()
-            + ";})", i) : indent("None", i));
+            + ";})" : "None");
   }
 
   private void debug(String msg) {
     System.out.println(msg);
   }
 
-  private String compute(BooleanExpr expr, Environment env) {
+  private String compute(BooleanExpr expr, Environment env, boolean isExport) {
+    Configuration conf = isExport ? _expConf : _impConf;
     if (expr instanceof MatchProtocol) {
       MatchProtocol mp = (MatchProtocol) expr;
       Protocol proto = Protocol.fromRoutingProtocol(mp.getProtocol());
@@ -247,12 +241,12 @@ public class TreeCompiler {
       debug("MatchPrefixSet");
       MatchPrefixSet m = (MatchPrefixSet) expr;
       // For BGP, may change prefix length
-      return matchPrefixSet(_conf, m.getPrefixSet(), env);
+      return matchPrefixSet(conf, m.getPrefixSet(), env);
 
     } else if (expr instanceof MatchCommunitySet) {
       debug("MatchCommunitySet");
       MatchCommunitySet mcs = (MatchCommunitySet) expr;
-      return matchCommunitySet(_conf, mcs.getExpr(), env);
+      return matchCommunitySet(conf, mcs.getExpr(), env);
 
     }
     String msg =
@@ -262,6 +256,47 @@ public class TreeCompiler {
   }
 
   private String treeToNV(Node<Boolean> p, int i) {
+    if (p.getLeft() == null && p.getRight() == null) {
+      System.out.println("Leaf: " + computeReturn(p.getEnv()));
+      return computeReturn(p.getEnv());
+    }
+    else {
+      // If it's not a leaf then it's a branching point.
+      String guard;
+      String l;
+      String r;
+      // Specialize the and case
+      if ((p.getRight().getLeft() != null) && (p.getRight().getLeft() == p.getLeft())) {
+        Node<Boolean> pr = p.getRight();
+        guard = mkAnd(
+            compute(p.getExpr(), p.getEnv().getData(), p.getExport()),
+            compute(pr.getExpr(), pr.getEnv().getData(), pr.getExport()));
+        l = treeToNV(p.getLeft(), i + 1);
+        r = treeToNV(pr.getRight(), i + 1);
+        return mkIf(guard, r, l);
+      }
+      // specialize the or case
+      else if ((p.getLeft().getRight() != null) && (p.getLeft().getRight() == p.getRight())){
+        Node<Boolean> pl = p.getLeft();
+        guard = mkOr(
+            compute(p.getExpr(), p.getEnv().getData(), p.getExport()),
+            compute(pl.getExpr(), pl.getEnv().getData(), pl.getExport()));
+        l = treeToNV(pl.getLeft(), i + 1);
+        r = treeToNV(p.getRight(), i + 1);
+        return mkIf(guard, r, l);
+      }
+      else {
+        guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
+        System.out.println("Left child: ");
+        l = treeToNV(p.getLeft(), i + 1);
+        System.out.println("Right child: ");
+        r = treeToNV(p.getRight(), i + 1);
+        return mkIf(guard, r, l);
+      }
+    }
+  }
+
+  /*private String treeToNV(Node<Boolean> p, int i) {
     if (p.isLeaf()) {
       return computeReturn(p.getEnv(), i);
     }
@@ -270,12 +305,13 @@ public class TreeCompiler {
       String guard = compute(p.getExpr(), p.getEnv().getData());
       return mkIf(guard, treeToNV(p.getRight(),i+1), treeToNV(p.getLeft(), i+1));
     }
-  }
+  }*/
 
   public String toNvString () {
     /* Traverse the tree from root and produce an NV program */
+    System.out.println("Traversing tree");
     Node<Boolean> head = _tree.getRoot();
-    return treeToNV(head, 0);
+    return treeToNV(head, 2);
 
   }
 }

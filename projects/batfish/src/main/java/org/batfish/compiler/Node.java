@@ -1,6 +1,6 @@
 package org.batfish.compiler;
 
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
@@ -15,27 +15,27 @@ public class Node<T> {
   //Parent nodes of this node, false represents left, true right.
   //Invariant: we don't keep track of parents for leaves.
   private List<Tuple<Node<T>, Boolean>> _parents;
-  private boolean _leaf; // This language has no sum types so I'll do it the ugly way...
+  private boolean _export; // Is this an export or import node.
 
   /* Constructor for leafs */
-  Node(T value, TransferParam<Environment> env) {
+  Node(T value, TransferParam<Environment> env, boolean export) {
     this._data = value;
     this._left = null;
     this._right = null;
     this._env = env;
     this._parents = null;
     this._expr = null;
-    this._leaf = true;
+    this._export = export;
   }
 
-  Node(BooleanExpr expr, TransferParam<Environment> env) {
+  Node(BooleanExpr expr, TransferParam<Environment> env, boolean export) {
     this._left = null;
     this._right = null;
     this._data = null;
     this._env = env;
     this._expr = expr;
     this._parents = null;
-    this._leaf = false;
+    this._export = export;
   }
 
   Node(Node<T> p, TransferParam<Environment> env) {
@@ -45,7 +45,7 @@ public class Node<T> {
     this._env = env;
     this._expr = p._expr;
     this._parents = p._parents;
-    this._leaf = p._leaf;
+    this._export = p._export;
   }
 
 
@@ -62,13 +62,21 @@ public class Node<T> {
 
     // if there is, then remove head from its parents
     if (current != null) {
-      Predicate<Tuple<Node<T>,Boolean>> isCurrent = p-> p.getFirst() == current;
+      Predicate<Tuple<Node<T>,Boolean>> isCurrent = p-> p.getFirst() == head;
+      System.out.println("Parents to consider for removal: ");
+      current._parents.forEach(p -> System.out.println(p));
       if (!current._parents.removeIf(isCurrent)) {
         System.out.println("Failed to remove parent");
       }
     }
 
-    // add c to lr position of head
+    // add c to lr position of head, but as an optimization
+    // if c.expr=head.expr then add the lr child of c instead.
+    boolean opt = (c.getExpr() != null) && (c.getExpr().equals(head.getExpr())) && (c.getEnv().equals(head.getEnv()));
+    if (opt) {
+      c = lr ? c.getRight() : c.getLeft();
+    }
+
     if (lr) {
       head._right = c;
     } else {
@@ -78,7 +86,7 @@ public class Node<T> {
     // add head to c parents.
     Tuple<Node<T>, Boolean> parent = new Tuple<>(head, lr);
     if (c._parents == null) {
-      c._parents = new LinkedList();
+      c._parents = new ArrayList<>();
       c._parents.add(parent);
     }
     else {
@@ -126,12 +134,12 @@ public class Node<T> {
     this._parents = parents;
   }
 
-  public boolean isLeaf() {
-    return _leaf;
+  public boolean getExport() {
+    return _export;
   }
 
-  public void setLeaf(boolean leaf) {
-    this._leaf = leaf;
+  public void setExport(boolean export) {
+    this._export = export;
   }
 
   public TransferParam<Environment> getEnv() {
@@ -150,6 +158,10 @@ public class Node<T> {
             (this._env.equals(((Node) obj)._env)) &&
             (this._expr.equals(((Node) obj)._expr)) &&
             (this._parents.equals(((Node) obj)._parents)) &&
-            (this._leaf == ((Node) obj)._leaf));
+            (this._export == ((Node) obj)._export));
+  }
+
+  @Override public int hashCode() {
+    return super.hashCode();
   }
 }
