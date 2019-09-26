@@ -419,6 +419,7 @@ public class NVCompiler {
             TransferFunctionBuilder exportTransBuilder =
                 new TransferFunctionBuilder(config, statements, edge, true);
             DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
+            exportTransBuilder.normalize(exportTree);
             TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config);
             String expPolicy = exportTreeCompiler.toNvString();
 
@@ -439,6 +440,8 @@ public class NVCompiler {
                 TransferFunctionBuilder importTransBuilder =
                     new TransferFunctionBuilder(invConfig, importStatements, invEdge, false);
                 DecisionTree<Boolean> importTree = importTransBuilder.compute();
+                importTransBuilder.normalize(importTree);
+
                 TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null);
                 impPolicy = importTreeCompiler.toNvString();
                 //policyTree = importTransBuilder.compute(exportTree);

@@ -59,7 +59,7 @@ public class Node<T> {
     // First see if there is already a node in this position.
     Node<T> head = this;
     Node<T> current = lr ? head._right : head._left;
-
+    System.out.println("Current is:" + current);
     // if there is, then remove head from its parents
     if (current != null) {
       Predicate<Tuple<Node<T>,Boolean>> isCurrent = p-> p.getFirst() == head;
@@ -164,4 +164,10 @@ public class Node<T> {
   @Override public int hashCode() {
     return super.hashCode();
   }
+
+ /* public Node<T> deepCopy () {
+    Node<T> fresh = new Node<>(this._expr, this._env, this._export);
+
+  } */
+
 }

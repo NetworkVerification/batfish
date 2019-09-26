@@ -4,6 +4,8 @@ import static org.batfish.symbolic.CommunityVarCollector.collectCommunityVars;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -919,4 +921,123 @@ class TransferFunctionBuilder {
     return t;
   }
 
+  private void swap(Node<Boolean> pre, DecisionTree<Boolean> t) {
+    if (pre.getParents().size() > 1)
+    {
+      throw new BatfishException("Should have a single parent");
+    }
+    Tuple<Node<Boolean>, Boolean> parent = pre.getParents().get(0);
+    Node<Boolean> v1 = parent.getFirst();
+    Boolean lr = parent.getSecond();
+
+    // Keep pointers to children of pre and v.
+    Node<Boolean> pl = pre.getLeft();
+    Node<Boolean> pr = pre.getRight();
+    Node<Boolean> vl = v1.getLeft();
+    Node<Boolean> vr = v1.getRight();
+
+    //Update the parents of pre to those of v if any.
+    if (v1.getParents() != null) {
+      List<Tuple<Node<Boolean>, Boolean>> vparents = new LinkedList<>();
+      vparents.addAll(v1.getParents());
+      for (Tuple<Node<Boolean>, Boolean> vparent : vparents) {
+        vparent.getFirst().setChild(pre, vparent.getSecond());
+      }
+    }
+    else {
+      pre.setParents(null);
+      t.setRoot(pre);
+    }
+
+    // Make a copy of v1, v1 will be the left child of pre, v2 the right.
+    Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
+    v1.setParents(null);
+    v2.setParents(null);
+    v1.setLeft(null);
+    v1.setRight(null);
+    v2.setLeft(null);
+    v2.setRight(null);
+    pre.setChild(v1, false);
+    pre.setChild(v2, true);
+
+    v1.setChild(lr ? vl : pl, false);
+    v1.setChild(lr ? pl : vr, true);
+    v2.setChild(lr ? vl : pr, false);
+    v2.setChild(lr ? pr : vr, true);
+  }
+
+  @Nullable
+  private Node<Boolean> findCandidate(DecisionTree<Boolean> t) {
+    Set<Node<Boolean>> preNodes = new HashSet<>();
+    preNodes.addAll(t.getPrefixNodes());
+    Iterator<Node<Boolean>> iter = preNodes.iterator();
+    while (iter.hasNext()) {
+      Node<Boolean> pre = iter.next();
+      List<Tuple<Node<Boolean>, Boolean>> parents = pre.getParents();
+      int sz = (parents != null) ? parents.size() : 0; // if it's zero it's root so that's ok.
+      if (sz == 1 && !t.getPrefixNodes().contains(parents.get(0))) {
+        return pre;
+      }
+      else if (sz > 1) {
+        // For every parent
+        boolean hasV = false;
+        for (Tuple<Node<Boolean>, Boolean> parent : parents) {
+          // Check that it is also a prefix node
+          if (!preNodes.contains(parent.getFirst())) {
+            hasV = true;
+            break;
+          }
+        }
+
+        if (hasV) {
+          for (int i = 1; i < sz; i++) {
+            // Make a copy of it
+            Node<Boolean> preCopy = new Node<>(pre.getExpr(), pre.getEnv(), pre.getExport());
+            preCopy.setParents(null);
+            Tuple<Node<Boolean>, Boolean> parent = parents.get(i);
+            parent.getFirst().setChild(preCopy, parent.getSecond());
+
+            //add the children of pre as children of precopy.
+            preCopy.setChild(pre.getLeft(), false);
+            preCopy.setChild(pre.getRight(), true);
+
+            // Add this node to the list of prefix nodes and to all nodes.
+            t.getPrefixNodes().add(preCopy);
+            t.getAllNodes().add(preCopy);
+          }
+          return pre;
+        }
+      }
+    }
+    return null;
+  }
+
+  private void optimizeAux(Node<Boolean> t) {
+    if (t.getLeft() != null && t.getLeft().getExpr() != null &&
+        t.getLeft().getExpr().equals(t.getExpr())) {
+      t.setChild(t.getLeft().getLeft(), false);
+    }
+    if (t.getRight() != null && t.getRight().getExpr() != null && t.getRight().getExpr().equals(t.getExpr())) {
+      t.setChild(t.getRight().getRight(), true);
+    }
+    if (t.getLeft() != null) {
+      optimizeAux(t.getLeft());
+    }
+    if (t.getRight() != null) {
+      optimizeAux(t.getRight());
+    }
+  }
+
+  private void optimize(DecisionTree<Boolean> t) {
+    optimizeAux(t.getRoot());
+  }
+
+  public void normalize(DecisionTree<Boolean> t) {
+    Node<Boolean> pre = findCandidate(t);
+    while (pre != null) {
+      swap(pre, t);
+      pre = findCandidate(t);
+    }
+    optimize(t);
+  }
 }

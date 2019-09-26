@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
+import org.batfish.datamodel.routing_policy.expr.MatchPrefixSet;
 import org.batfish.symbolic.utils.Tuple;
 
 public class DecisionTree<T> {
@@ -16,17 +17,23 @@ public class DecisionTree<T> {
 
   private Set<Node<T>> _leafs;
   private Set<Node<T>> _allNodes;
+  private Set<Node<T>> _prefixNodes;
 
   public DecisionTree(Node<T> _root, Set<Node<T>> _leafs) {
     this._root = _root;
     this._leafs = _leafs;
+    this._prefixNodes = new HashSet<>();
     this._allNodes = new HashSet<>();
+    if (_root.getExpr() != null && (_root.getExpr() instanceof MatchPrefixSet)) {
+      _prefixNodes.add(_root);
+    }
     _allNodes.add(_root);
     _allNodes.addAll(_leafs);
   }
 
   public DecisionTree(Node<T> _root) {
     this._root = _root;
+    this._prefixNodes = new HashSet<>();
     this._leafs = new HashSet<>();
     this._allNodes = new HashSet<>();
     this._leafs.add(_root);
@@ -62,8 +69,18 @@ public class DecisionTree<T> {
         // Add te leafs of t to the list of leafs.
         _leafs.addAll(t.getLeafs());
         _allNodes.addAll(t._allNodes);
+        _prefixNodes.addAll(t._prefixNodes);
       }
     }
+  }
+
+
+  public Set<Node<T>> getPrefixNodes() {
+    return _prefixNodes;
+  }
+
+  public void setPrefixNodes(Set<Node<T>> prefixNodes) {
+    this._prefixNodes = prefixNodes;
   }
 
   public Node<T> getRoot() {
@@ -80,6 +97,14 @@ public class DecisionTree<T> {
 
   public void setLeafs(Set<Node<T>> leafs) {
     this._leafs = leafs;
+  }
+
+  public Set<Node<T>> getAllNodes() {
+    return _allNodes;
+  }
+
+  public void setAllNodes(Set<Node<T>> allNodes) {
+    this._allNodes = allNodes;
   }
 
   private void printTreeAux (Node<T> head, int i) {
