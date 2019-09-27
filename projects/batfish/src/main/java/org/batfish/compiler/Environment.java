@@ -29,7 +29,7 @@ public class Environment implements IDeepCopy<Environment> {
     this._cost = "b.aslen";
     this._med = "b.med";
     this._communities = "b.comms";
-    this._protocol = "x.selected";
+    this._protocol = "prot";
     this._prefixLength = "prefixLen";
     this._prefixValue = "prefix";
     this._valid = false;

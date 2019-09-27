@@ -49,7 +49,7 @@ public final class NVFunctions {
   }
 
   public static String mkOr(String x, String y) {
-    if (x.equals("false")) {
+    if (x.equals("false") || x.equals("(false)")) {
       return y;
     }
     if (y.equals("false") || y.equals("(false)")) {

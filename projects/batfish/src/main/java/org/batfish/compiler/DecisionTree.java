@@ -124,7 +124,26 @@ public class DecisionTree<T> {
     _allNodes.forEach(n -> System.out.println(n + ", "));
     System.out.println("-----");
     printTreeAux(this._root, 0);
+  }
 
+  private void optimizeAux(Node<T> t) {
+    if (t.getLeft() != null && t.getLeft().getExpr() != null &&
+        t.getLeft().getExpr().equals(t.getExpr())) {
+      t.setChild(t.getLeft().getLeft(), false);
+    }
+    if (t.getRight() != null && t.getRight().getExpr() != null && t.getRight().getExpr().equals(t.getExpr())) {
+      t.setChild(t.getRight().getRight(), true);
+    }
+    if (t.getLeft() != null) {
+      optimizeAux(t.getLeft());
+    }
+    if (t.getRight() != null) {
+      optimizeAux(t.getRight());
+    }
+  }
+
+  public void optimize() {
+    optimizeAux(_root);
   }
 
 }

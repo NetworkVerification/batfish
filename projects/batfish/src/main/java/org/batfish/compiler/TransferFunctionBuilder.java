@@ -1012,32 +1012,11 @@ class TransferFunctionBuilder {
     return null;
   }
 
-  private void optimizeAux(Node<Boolean> t) {
-    if (t.getLeft() != null && t.getLeft().getExpr() != null &&
-        t.getLeft().getExpr().equals(t.getExpr())) {
-      t.setChild(t.getLeft().getLeft(), false);
-    }
-    if (t.getRight() != null && t.getRight().getExpr() != null && t.getRight().getExpr().equals(t.getExpr())) {
-      t.setChild(t.getRight().getRight(), true);
-    }
-    if (t.getLeft() != null) {
-      optimizeAux(t.getLeft());
-    }
-    if (t.getRight() != null) {
-      optimizeAux(t.getRight());
-    }
-  }
-
-  private void optimize(DecisionTree<Boolean> t) {
-    optimizeAux(t.getRoot());
-  }
-
   public void normalize(DecisionTree<Boolean> t) {
     Node<Boolean> pre = findCandidate(t);
     while (pre != null) {
       swap(pre, t);
       pre = findCandidate(t);
     }
-    optimize(t);
   }
 }

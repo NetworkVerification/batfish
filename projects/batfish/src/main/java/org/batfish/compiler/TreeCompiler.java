@@ -10,6 +10,7 @@ import static org.batfish.compiler.NVFunctions.mkIf;
 import static org.batfish.compiler.NVFunctions.mkInt;
 import static org.batfish.compiler.NVFunctions.mkLe;
 import static org.batfish.compiler.NVFunctions.mkLt;
+import static org.batfish.compiler.NVFunctions.mkNot;
 import static org.batfish.compiler.NVFunctions.mkOr;
 import static org.batfish.symbolic.CommunityVarCollector.collectCommunityVars;
 import static org.batfish.symbolic.bdd.CommunityVarConverter.toCommunityVar;
@@ -39,6 +40,7 @@ import org.batfish.datamodel.routing_policy.expr.NamedPrefixSet;
 import org.batfish.datamodel.routing_policy.expr.PrefixSetExpr;
 import org.batfish.symbolic.CommunityVar;
 import org.batfish.symbolic.Protocol;
+import org.batfish.symbolic.utils.Tuple;
 
 public class TreeCompiler {
 
@@ -257,7 +259,7 @@ public class TreeCompiler {
 
   private String treeToNV(Node<Boolean> p, int i) {
     if (p.getLeft() == null && p.getRight() == null) {
-      System.out.println("Leaf: " + computeReturn(p.getEnv()));
+      //System.out.println("Leaf: " + computeReturn(p.getEnv()));
       return computeReturn(p.getEnv());
     }
     else {
@@ -273,7 +275,6 @@ public class TreeCompiler {
             compute(pr.getExpr(), pr.getEnv().getData(), pr.getExport()));
         l = treeToNV(p.getLeft(), i + 1);
         r = treeToNV(pr.getRight(), i + 1);
-        return mkIf(guard, r, l);
       }
       // specialize the or case
       else if ((p.getLeft().getRight() != null) && (p.getLeft().getRight() == p.getRight())){
@@ -283,29 +284,67 @@ public class TreeCompiler {
             compute(pl.getExpr(), pl.getEnv().getData(), pl.getExport()));
         l = treeToNV(pl.getLeft(), i + 1);
         r = treeToNV(p.getRight(), i + 1);
-        return mkIf(guard, r, l);
       }
       else {
         guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
-        System.out.println("Left child: ");
+        //System.out.println("Left child: ");
         l = treeToNV(p.getLeft(), i + 1);
-        System.out.println("Right child: ");
+        //System.out.println("Right child: ");
         r = treeToNV(p.getRight(), i + 1);
-        return mkIf(guard, r, l);
       }
+      return mkIf(guard, r, l);
     }
   }
 
-  /*private String treeToNV(Node<Boolean> p, int i) {
-    if (p.isLeaf()) {
-      return computeReturn(p.getEnv(), i);
+  // TODO: implement AND-OR optimizations.
+  private List<Tuple<String, Node<Boolean>>> doChild(String guard, Node<Boolean> p) {
+    if (p.getExpr() != null && p.getExpr() instanceof MatchPrefixSet) {
+      List<Tuple<String, Node<Boolean>>> lst = treeToList(p);
+      int sz = lst.size();
+      for (int idx = 0; idx < sz; idx++) {
+        Tuple<String,Node<Boolean>> elt = lst.get(idx);
+        lst.set(idx, new Tuple<>(mkAnd(guard, elt.getFirst()), elt.getSecond()));
+      }
+      return lst;
     }
     else {
-      // If it's not a leaf then it's a branching point.
-      String guard = compute(p.getExpr(), p.getEnv().getData());
-      return mkIf(guard, treeToNV(p.getRight(),i+1), treeToNV(p.getLeft(), i+1));
+      List<Tuple<String, Node<Boolean>>> res = new ArrayList<>();
+      res.add(new Tuple<>(guard, p));
+      return res;
     }
-  }*/
+  }
+  /* This function is used to compile the prefix-related nodes. It returns a list of
+      string (the compiled prefix conditions) and trees/nodes that are the value-related nodes that
+      apply to these prefixes and are to be compiled.
+   */
+  private List<Tuple<String, Node<Boolean>>> treeToList(Node<Boolean> p) {
+    String guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
+    List<Tuple<String, Node<Boolean>>> lstTrue = doChild(guard, p.getRight());
+    List<Tuple<String, Node<Boolean>>> lstFalse = doChild(mkNot(guard), p.getLeft());
+    lstTrue.addAll(lstFalse);
+    return lstTrue;
+  }
+
+  /* Use for BDD-based simulator */
+  public List<Tuple<String, String>> toNvStrings () {
+    /* Traverse the tree from root and produce an NV program */
+    System.out.println("Traversing tree");
+    Node<Boolean> head = _tree.getRoot();
+    List<Tuple<String, String>> results = new ArrayList<>();
+    if (head.getExpr() != null && head.getExpr() instanceof MatchPrefixSet) {
+      List<Tuple<String, Node<Boolean>>> funs = treeToList(head);
+      int sz = funs.size();
+      for (int i = 0; i < sz; i++) {
+        Tuple<String, Node<Boolean>> fn = funs.get(i);
+        results.set(i, new Tuple<>(fn.getFirst(),treeToNV(fn.getSecond(), 2)));
+      }
+      return results;
+    }
+    else {
+      results.add(new Tuple<>("", treeToNV(head, 2)));
+      return results;
+    }
+  }
 
   public String toNvString () {
     /* Traverse the tree from root and produce an NV program */
