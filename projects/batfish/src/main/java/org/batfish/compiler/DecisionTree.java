@@ -47,11 +47,11 @@ public class DecisionTree<T> {
         List<Tuple<Node<T>, Boolean>> parents = new ArrayList<>();
         parents.addAll(targetLeaf.getParents());
         int sz = parents.size();
-        System.out.print("targetLeaf: " + targetLeaf + " has parents: ");
+        /*System.out.print("targetLeaf: " + targetLeaf + " has parents: ");
         for (int i=0; i < sz; i++) {
           System.out.print(parents.get(i) + ",");
         }
-        System.out.println("");
+        System.out.println("");*/
         for (int i=0; i < sz; i++) {
           Tuple<Node<T>, Boolean> parent = parents.get(i);
           //System.out.println("Checking parent: " + parent.getFirst());

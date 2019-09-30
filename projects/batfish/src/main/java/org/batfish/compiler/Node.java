@@ -59,12 +59,12 @@ public class Node<T> {
     // First see if there is already a node in this position.
     Node<T> head = this;
     Node<T> current = lr ? head._right : head._left;
-    System.out.println("Current is:" + current);
+    //System.out.println("Current is:" + current);
     // if there is, then remove head from its parents
     if (current != null) {
       Predicate<Tuple<Node<T>,Boolean>> isCurrent = p-> p.getFirst() == head;
-      System.out.println("Parents to consider for removal: ");
-      current._parents.forEach(p -> System.out.println(p));
+      //System.out.println("Parents to consider for removal: ");
+      //current._parents.forEach(p -> System.out.println(p));
       if (!current._parents.removeIf(isCurrent)) {
         System.out.println("Failed to remove parent");
       }

@@ -198,7 +198,6 @@ public class TreeCompiler {
             + "; "
             + "aslen= "
             + p.getData().get_cost()
-            + " + 1"
             + "; "
             + "med= "
             + p.getData().get_med()
@@ -328,7 +327,6 @@ public class TreeCompiler {
   /* Use for BDD-based simulator */
   public List<Tuple<String, String>> toNvStrings () {
     /* Traverse the tree from root and produce an NV program */
-    System.out.println("Traversing tree");
     Node<Boolean> head = _tree.getRoot();
     List<Tuple<String, String>> results = new ArrayList<>();
     if (head.getExpr() != null && head.getExpr() instanceof MatchPrefixSet) {
@@ -336,7 +334,7 @@ public class TreeCompiler {
       int sz = funs.size();
       for (int i = 0; i < sz; i++) {
         Tuple<String, Node<Boolean>> fn = funs.get(i);
-        results.set(i, new Tuple<>(fn.getFirst(),treeToNV(fn.getSecond(), 2)));
+        results.add(i, new Tuple<>(fn.getFirst(),treeToNV(fn.getSecond(), 2)));
       }
       return results;
     }

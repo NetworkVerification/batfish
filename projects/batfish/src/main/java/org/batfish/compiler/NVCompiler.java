@@ -49,7 +49,7 @@ class InitialAttribute {
     }
     String b = _bgp ? "Some {bgpAd=20; lp=100; aslen=0; med=80; comms={};}" : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
-    sb.append("let c = ")
+    sb.append("    let c = ")
         .append(c)
         .append(" in\n")
         .append("    let s = ")
@@ -130,7 +130,7 @@ public class NVCompiler {
         .append("  match x.bgp with\n")
         .append("  | None -> None\n")
         .append("  | Some b ->\n")
-        .append("    policy x.selected b\n");
+        .append("    policy x.selected b\n\n");
 
     sb.append(" let transferBgpPol policy x =\n")
         .append("  let b = match x.selected with\n")
@@ -146,7 +146,7 @@ public class NVCompiler {
         .append("  match b with\n")
         .append("  | None -> None\n")
         .append("  | Some b ->\n")
-        .append("    policy x.selected b\n");
+        .append("    policy x.selected b\n\n");
 
     sb.append(" let transferBgp e x0 =\n").append("  match e with\n");
 
@@ -192,7 +192,7 @@ public class NVCompiler {
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
                 sb.append("     let x0 = map (transferBgpPol (fun prot b -> \n")
-                    .append("           " + expPolicies.get(0) + ")) x0\n")
+                    .append("           " + expPolicies.get(0).getSecond() + ")) x0\n")
                     .append("     in\n");
               } else {
                 for (int idx = 0; idx < numberOfPolicies; idx++) {
@@ -249,7 +249,7 @@ public class NVCompiler {
                   } else {
                     for (int idx = 0; idx < numberOfPolicies; idx++) {
                       sb.append("     let x" + (idx + 1) + " =\n")
-                          .append("     mapIf (fun p -> let (prefix, prefixLen) in\n"
+                          .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
                               + "                   " + impPolicies.get(idx).getFirst() + ")\n")
                           .append("         (transferBgpImpPol (fun prot b ->\n");
                       if (idx == 0) {
@@ -261,17 +261,19 @@ public class NVCompiler {
                       }
                       sb.append("     in\n");
                     }
-                    sb.append("     x" + numberOfPolicies);
+                    sb.append("     x" + numberOfPolicies + "\n\n");
                   }
                 } else {
                   impPolicy = importTreeCompiler.toNvString();
                   sb.append("     map (transferBgpImpPol (fun prot b -> \n")
-                      .append("         " + impPolicy + ") x\n");
+                      .append("         " + impPolicy + ") x\n\n");
                 }
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
+              else { sb.append("      " + impPolicy + "\n\n"); }
             }
+            else { sb.append("      " + impPolicy + "\n\n"); }
           }
         }
       }
@@ -304,7 +306,41 @@ public class NVCompiler {
               }
             }*/
 
-  public String compile(boolean singlePrefix) {
+  private void ospfTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+    sb.append(" let transferOspf edge o =\n")
+        .append("   match o with\n")
+        .append("   | None -> None\n")
+        .append("   | Some o -> (\n")
+        .append("   match edge with\n");
+
+    Set<String> ospfSet = new HashSet<>();
+
+    for (GraphEdge edge : _graph.getAllEdges()) {
+      if (edge.getPeer() != null) {
+        Interface iface = edge.getStart();
+        Integer cost = iface.getOspfCost() == null ? 1 : iface.getOspfCost();
+        Long areaId = iface.getOspfAreaName();
+        //        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
+        //        sb.append("None\n");
+        // }
+        if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
+          ospfSet.add(edgeMap.get(edge));
+          sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
+          sb.append("Some {ospfAd = o.ad; weight = o.weight + ")
+              .append(cost)
+              .append("; areaType = if !(o.areaId = ")
+              .append(areaId)
+              .append(") then ospfInterArea else o.areaType; areaId = ")
+              .append(areaId)
+              .append(";}\n");
+        }
+      }
+    }
+    sb.append("   | _ -> None\n)\n\n");
+  }
+
+
+    public String compile(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
     String ospfType = "{ospfAd: int; weight: int; areaType:int; areaId: int;}"; // (ad, cost, area-type, area-id)
     String connType = "int"; // ad
@@ -513,7 +549,6 @@ public class NVCompiler {
         }
       }
 
-      sb.append("     ");
       /* This induces a large repetition of code but it's ok for now */
       if (singlePrefix) {
         for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
@@ -539,62 +574,34 @@ public class NVCompiler {
           String initAttr = attrpre.getKey().compileAttr(singlePrefix);
           sb.append(initAttr);
           for (Prefix pre : attrpre.getValue()) {
-            sb.append("      let d = d[(")
+            sb.append("    let d = d[(")
                 .append(pre.getStartIp().asLong())
                 .append(", ")
                 .append(pre.getPrefixLength())
                 .append(") := route] in\n");
           }
         }
-        sb.append("        d\n");
+        sb.append("      d\n");
       }
     }
     sb.append("  | _ -> d\n\n");
 
-    sb.append(" let transferOspf edge o =\n")
-        .append("   match o with\n")
-        .append("   | None -> None\n")
-        .append("   | Some o -> (\n")
-        .append("   match edge with\n");
+    // TODO: call ospfTransfer here
 
-    Set<String> ospfSet = new HashSet<>();
-
-    for (GraphEdge edge : _graph.getAllEdges()) {
-      if (edge.getPeer() != null) {
-        Interface iface = edge.getStart();
-        Integer cost = iface.getOspfCost() == null ? 1 : iface.getOspfCost();
-        Long areaId = iface.getOspfAreaName();
-        //        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
-        //        sb.append("None\n");
-        // }
-        if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
-          ospfSet.add(edgeMap.get(edge));
-          sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-          sb.append("Some {ospfAd = o.ad; weight = o.weight + ")
-              .append(cost)
-              .append("; areaType = if !(o.areaId = ")
-              .append(areaId)
-              .append(") then ospfInterArea else o.areaType; areaId = ")
-              .append(areaId)
-              .append(";}\n");
-        }
-      }
-    }
-    sb.append("   | _ -> None\n)\n\n");
-
+    ospfTrans(singlePrefix,sb,edgeMap);
     bgpTrans(singlePrefix,sb,edgeMap);
 
-    sb.append("let transferRoute edge x = \n")
-        .append("  let o = transferOspf edge x.ospf in\n")
-        .append("  let b = transferBgp edge x in\n")
-        .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
-
-    sb.append("let trans edge x =\n");
     if (singlePrefix) {
-      sb.append("   transferRoute edge x\n\n");
-    } else
-    {
-      sb.append("  map (transferRoute edge) x\n\n");
+      sb.append("let trans edge x = \n")
+          .append("  let o = transferOspf edge x.ospf in\n")
+          .append("  let b = transferBgp edge x in\n")
+          .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
+    }
+    else {
+      sb.append("let trans edge x = \n")
+          .append("  let x = transferBgp edge x in\n")
+          .append("  let x = map (fun x -> {x with ospf=transferOspf edge x.ospf; connected=None; static=None}) x in\n")
+          .append("  x\n\n");
     }
 
     /* Print node assignments for usability reasons */

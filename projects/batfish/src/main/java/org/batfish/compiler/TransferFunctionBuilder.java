@@ -110,20 +110,12 @@ class TransferFunctionBuilder {
       DecisionTree<Boolean> head = null;
       for (BooleanExpr be : c.getConjuncts()) {
         if (head == null) {
-          System.out.println("\nFirst conjunct " + be.toString());
           head = exprToTree(be, pCur, tleaf, fleaf);
         }
         else {
-          System.out.println("Additional conjunct: ");
-          head.printTree();
-          System.out.println("\nConjuncting " + be.toString());
-          System.out.println("TLEAF before: " + tleaf + "," + tleaf.getEnv().getData().get_communities());
           head = continuationExpr(head, pCur, tleaf, fleaf, be, true);
-          System.out.println("Head after conjunction: ");
-          head.printTree();
         }
       }
-      System.out.println("END conjunction: ");
       return head;
     }
 
@@ -137,11 +129,7 @@ class TransferFunctionBuilder {
         }
         else {
           //DecisionTree<Boolean> t = exprToTree(be, pCur, tleaf, fleaf);
-          System.out.println("Head at disjunction: ");
-          head.printTree();
           head = continuationExpr(head, pCur, tleaf, fleaf, be, false);
-          System.out.println("Head after disjunction: ");
-          head.printTree();
         }
       }
       return head;
@@ -414,7 +402,6 @@ class TransferFunctionBuilder {
             exprToTree(i.getGuard(), p, tleafFresh, fleafFresh);
 
         p.debug("guard uncompiled: " + i.getGuard().toString());
-        guard.printTree();
         List<Statement> statementsFall;
 
         statementsFall = new ArrayList<>(i.getFalseStatements());
@@ -441,8 +428,6 @@ class TransferFunctionBuilder {
           guard.mergeAtLeaf(t.getFirst(), t.getSecond());
         }
 
-        System.out.println("Final computed boolIf: ");
-        guard.printTree();
 
         return guard;
 
@@ -737,7 +722,6 @@ class TransferFunctionBuilder {
         List<Tuple<DecisionTree<Boolean>, Node<Boolean>>> todo = new ArrayList<>();
 
         System.out.println("Printing the if-guard at stateful if");
-        guard.printTree();
         for (Node<Boolean> leaf : guard.getLeafs()) {
           Boolean branch = leaf.getData();
           //Make fresh environment for this branch
@@ -866,11 +850,22 @@ class TransferFunctionBuilder {
         System.out.println("False Branch");printStatements(((If) stmt).getFalseStatements());} });
   }
 
+  private void applyMetricUpdate(DecisionTree<Boolean> t) {
+    if (_isExport) {
+      for (Node<Boolean> leaf : t.getLeafs()) {
+        Environment env = leaf.getEnv().getData();
+        env.set_cost(env.get_cost() + " + 1");
+      }
+    }
+  }
+
   public DecisionTree<Boolean> compute() {
     Environment env = new Environment();
     TransferParam<Environment> p = new TransferParam<>(env, true);
     Node<Boolean> nodeP = new Node<>(true, p, _isExport);
-    return compute(_statements, nodeP);
+    DecisionTree<Boolean> t = compute(_statements, nodeP);
+    applyMetricUpdate(t);
+    return t;
   }
 
   private DecisionTree<Boolean> continuationExpr(DecisionTree<Boolean> t, TransferParam<Environment> pCur,
