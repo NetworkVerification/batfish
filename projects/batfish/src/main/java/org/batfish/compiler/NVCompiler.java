@@ -61,9 +61,9 @@ class InitialAttribute {
         .append("    let b = ")
         .append(b)
         .append(" in\n")
-        .append("    let fib = best (" + c + ") " + "(" + s + ") o b in\n");
+        .append("    let fib = best c s o b in\n");
     if (singlePrefix) {
-      sb.append("      {connected="+c+"; static="+s+"; ospf=o; bgp=b; selected=fib;}\n");
+      sb.append("      {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
     } else {
       sb.append("    let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
     }
@@ -126,11 +126,13 @@ public class NVCompiler {
         .append("  | Some b -> (\n")
         .append("   match edge with\n"); */
 
-    sb.append(" let transferBgpImpPol policy x =\n")
-        .append("  match x.bgp with\n")
-        .append("  | None -> None\n")
-        .append("  | Some b ->\n")
-        .append("    policy x.selected b\n\n");
+    if (!singlePrefix) {
+      sb.append(" let transferBgpImpPol policy x =\n")
+          .append("  match x.bgp with\n")
+          .append("  | None -> {x with bgp=None}\n")
+          .append("  | Some b ->\n")
+          .append("    {x with bgp=policy x.selected b}\n\n");
+    }
 
     sb.append(" let transferBgpPol policy x =\n")
         .append("  let b = match x.selected with\n")
@@ -143,10 +145,17 @@ public class NVCompiler {
             "          | Some 2 -> Some {bgpAd = 110; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append("          | Some 3 -> x.bgp\n")
         .append("  in\n")
-        .append("  match b with\n")
-        .append("  | None -> None\n")
-        .append("  | Some b ->\n")
-        .append("    policy x.selected b\n\n");
+        .append("  match b with\n");
+    if (!singlePrefix) {
+          sb.append("  | None -> {x with bgp=None}\n")
+          .append("  | Some b ->\n")
+          .append("    {x with bgp=policy x.selected b}\n\n");
+    }
+    else {
+      sb.append("  | None -> None\n")
+          .append("  | Some b ->\n")
+          .append("    policy x.selected b\n\n");
+    }
 
     sb.append(" let transferBgp e x0 =\n").append("  match e with\n");
 
@@ -207,8 +216,10 @@ public class NVCompiler {
                 impPolicy = "x" + numberOfPolicies;
               }
             } else {
+              impPolicy = "b";
               String expPolicy = exportTreeCompiler.toNvString();
-              sb.append("     let x0 = map (transferBgpPol (fun prot b -> \n")
+              sb.append("     let (prefix, prefixLen) = d in\n")
+                  .append("     let b = (transferBgpPol (fun prot b -> \n")
                   .append("           " + expPolicy + ")) x0\n")
                   .append("     in\n");
             }
@@ -265,8 +276,10 @@ public class NVCompiler {
                   }
                 } else {
                   impPolicy = importTreeCompiler.toNvString();
-                  sb.append("     map (transferBgpImpPol (fun prot b -> \n")
-                      .append("         " + impPolicy + ") x\n\n");
+                  sb.append("         (match b with\n")
+                      .append("         | None -> None\n")
+                      .append("         | Some b ->\n")
+                      .append("           " + impPolicy + ")\n\n");
                 }
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
@@ -584,8 +597,12 @@ public class NVCompiler {
         sb.append("      d\n");
       }
     }
-    sb.append("  | _ -> d\n\n");
-
+    if (singlePrefix) {
+      sb.append("  | _ -> {connected=None; static=None; ospf=None; bgp=None; selected=None;}\n\n");
+    }
+    else {
+      sb.append("  | _ -> d\n\n");
+    }
     // TODO: call ospfTransfer here
 
     ospfTrans(singlePrefix,sb,edgeMap);
