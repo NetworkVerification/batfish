@@ -53,7 +53,10 @@ public class HeaderQuestion extends Question {
   private static final String PROP_MODEL_OVERFLOW = "modelOverflow";
   private static final String PROP_USE_ABSTRACTION = "useAbstraction";
   private static final String PROP_BENCHMARK = "benchmark";
+  private static final String PROP_SINGLE_PREFIX = "singlePrefix";
 
+
+  private boolean _singlePrefix;
   private Set<FlowDisposition> _actions;
 
   private HeaderSpace _headerSpace;
@@ -108,6 +111,7 @@ public class HeaderQuestion extends Question {
     _bgpRanking.add(BgpDecisionVariable.MED);
     _bgpRanking.add(BgpDecisionVariable.EBGP_PREF_IBGP);
     _bgpRanking.add(BgpDecisionVariable.IGPCOST);
+    _singlePrefix = true;
   }
 
   public HeaderQuestion(HeaderQuestion q) {
@@ -127,6 +131,7 @@ public class HeaderQuestion extends Question {
     _useAbstraction = q._useAbstraction;
     _stats = q._stats;
     _benchmark = q._benchmark;
+    _singlePrefix = q._singlePrefix;
   }
 
   @Override
@@ -303,6 +308,9 @@ public class HeaderQuestion extends Question {
     return _benchmark;
   }
 
+  @JsonProperty(PROP_SINGLE_PREFIX)
+  public boolean getSinglePrefix() { return _singlePrefix; }
+
   @JsonProperty(PROP_NOT_DST_IPS)
   public void setNotDstIps(Set<IpWildcard> notDstIps) {
     _headerSpace.setNotDstIps(new TreeSet<>(notDstIps));
@@ -447,5 +455,10 @@ public class HeaderQuestion extends Question {
   @JsonProperty(PROP_BENCHMARK)
   public void setBenchmark(boolean x) {
     this._benchmark = x;
+  }
+
+  @JsonProperty(PROP_SINGLE_PREFIX)
+  public void setSinglePrefix(boolean x) {
+    this._singlePrefix = x;
   }
 }

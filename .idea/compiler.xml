@@ -8,15 +8,15 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="allinone" />
-        <module name="symbolic" />
-        <module name="batfish-common-protocol" />
-        <module name="build-tools" />
-        <module name="minesweeper" />
-        <module name="bdd" />
         <module name="batfish" />
-        <module name="coordinator" />
-        <module name="question" />
         <module name="batfish-client" />
+        <module name="batfish-common-protocol" />
+        <module name="bdd" />
+        <module name="build-tools" />
+        <module name="coordinator" />
+        <module name="minesweeper" />
+        <module name="question" />
+        <module name="symbolic" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>

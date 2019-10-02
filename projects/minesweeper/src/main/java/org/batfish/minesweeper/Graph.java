@@ -281,14 +281,15 @@ public class Graph {
 
     if (proto.isOspf()) {
       OspfProcess ospf = getFirstOspfProcess(conf.getDefaultVrf());
-      for (OspfArea area : ospf.getAreas().values()) {
-        for (String ifaceName : area.getInterfaces()) {
-          Interface iface = conf.getAllInterfaces().get(ifaceName);
-          if (iface.getActive() && iface.getOspfEnabled()) {
-            acc.add(iface.getConcreteAddress().getPrefix());
+      if (ospf != null && ospf.getAreas() != null) {
+        for (OspfArea area : ospf.getAreas().values()) {
+          for (String ifaceName : area.getInterfaces()) {
+            Interface iface = conf.getAllInterfaces().get(ifaceName);
+            if (iface.getActive() && iface.getOspfEnabled()) {
+              acc.add(iface.getConcreteAddress().getPrefix());
+            }
           }
-        }
-      }
+        }}
       return acc;
     }
 
@@ -356,7 +357,7 @@ public class Graph {
    * process ID, or {@code null} if {@code vrf} does not have any OSPF processes.
    */
   @Nullable
-  private static OspfProcess getFirstOspfProcess(Vrf vrf) {
+  public static OspfProcess getFirstOspfProcess(Vrf vrf) {
     if (vrf.getOspfProcesses().isEmpty()) {
       return null;
     }
