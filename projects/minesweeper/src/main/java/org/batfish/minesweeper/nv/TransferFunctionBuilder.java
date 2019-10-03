@@ -927,10 +927,13 @@ class TransferFunctionBuilder {
   }
 
   private void swap(Node<Boolean> pre, DecisionTree<Boolean> t) {
+    // We created copies so if the following holds something went wrong.
     if (pre.getParents().size() > 1)
     {
-      throw new BatfishException("Should have a single parent");
+      throw new BatfishException("Should have a single parent, but has" + pre.getParents().size());
     }
+
+    // get the unique parent of pre.
     Tuple<Node<Boolean>, Boolean> parent = pre.getParents().get(0);
     Node<Boolean> v1 = parent.getFirst();
     Boolean lr = parent.getSecond();
@@ -941,6 +944,8 @@ class TransferFunctionBuilder {
     Node<Boolean> vl = v1.getLeft();
     Node<Boolean> vr = v1.getRight();
 
+    System.out.println(pl);
+    System.out.println(pl.getParents());
     //Update the parents of pre to those of v if any.
     if (v1.getParents() != null) {
       List<Tuple<Node<Boolean>, Boolean>> vparents = new LinkedList<>();
@@ -954,6 +959,10 @@ class TransferFunctionBuilder {
       t.setRoot(pre);
     }
 
+    System.out.println("after updating parents of pre to those of v");
+    System.out.println(pl);
+    System.out.println(pl.getParents());
+
     // Make a copy of v1, v1 will be the left child of pre, v2 the right.
     Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
     v1.setParents(null);
@@ -962,6 +971,11 @@ class TransferFunctionBuilder {
     v1.setRight(null);
     v2.setLeft(null);
     v2.setRight(null);
+    // One of the guys above breaks the parents of pre.left (aka pl).
+    System.out.println("just before the crash");
+    System.out.println(pl);
+    System.out.println(pl.getParents());
+
     pre.setChild(v1, false);
     pre.setChild(v2, true);
 
@@ -971,20 +985,29 @@ class TransferFunctionBuilder {
     v2.setChild(lr ? pr : vr, true);
   }
 
+  /* Finds a candidate node to swap */
   @Nullable
   private Node<Boolean> findCandidate(DecisionTree<Boolean> t) {
+    // Add all prefix expression nodes to a new set to modify while iterating.
     Set<Node<Boolean>> preNodes = new HashSet<>();
     preNodes.addAll(t.getPrefixNodes());
+
+    // Iterate over the prefix nodes
     Iterator<Node<Boolean>> iter = preNodes.iterator();
     while (iter.hasNext()) {
       Node<Boolean> pre = iter.next();
+
+      // Get the parents of the prefix node.
       List<Tuple<Node<Boolean>, Boolean>> parents = pre.getParents();
       int sz = (parents != null) ? parents.size() : 0; // if it's zero it's root so that's ok.
-      if (sz == 1 && !t.getPrefixNodes().contains(parents.get(0))) {
+
+      // If it has one parent and it is not a prefix node then return that candidate.
+      if (sz == 1 && !t.getPrefixNodes().contains(parents.get(0).getFirst())) {
         return pre;
       }
+      // If the node has more than 1 parents
       else if (sz > 1) {
-        // For every parent
+        // then if it has a parent that is not a prefix expression
         boolean hasV = false;
         for (Tuple<Node<Boolean>, Boolean> parent : parents) {
           // Check that it is also a prefix node
@@ -994,12 +1017,18 @@ class TransferFunctionBuilder {
           }
         }
 
+        // we need to break it up (ideally not completely, but now we are breaking it up completely).
         if (hasV) {
+          List<Tuple<Node<Boolean>, Boolean>> parentsCopy = new ArrayList<>();
+          parentsCopy.addAll(parents);
+          parents.forEach(p -> System.out.println(p.toString()));
           for (int i = 1; i < sz; i++) {
             // Make a copy of it
             Node<Boolean> preCopy = new Node<>(pre.getExpr(), pre.getEnv(), pre.getExport());
             preCopy.setParents(null);
-            Tuple<Node<Boolean>, Boolean> parent = parents.get(i);
+            System.out.println("sz is:" + sz);
+            System.out.println("i is:" + i);
+            Tuple<Node<Boolean>, Boolean> parent = parentsCopy.get(i);
             parent.getFirst().setChild(preCopy, parent.getSecond());
 
             //add the children of pre as children of precopy.
@@ -1010,6 +1039,7 @@ class TransferFunctionBuilder {
             t.getPrefixNodes().add(preCopy);
             t.getAllNodes().add(preCopy);
           }
+          System.out.println("after findCandidate pre has parents:" + pre.getParents().size());
           return pre;
         }
       }
