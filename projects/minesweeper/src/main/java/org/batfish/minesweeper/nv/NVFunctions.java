@@ -79,6 +79,10 @@ public final class NVFunctions {
     return "" + i;
   }
 
+  public static String mkInt(int i, int sz) {
+    return "" + i + "u" + sz;
+  }
+
   public static String mkGe(String x, String y) {
     return "(" + x + " >= " + y + ")";
   }

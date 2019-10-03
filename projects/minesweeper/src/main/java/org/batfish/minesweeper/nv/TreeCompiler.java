@@ -2,6 +2,7 @@ package org.batfish.minesweeper.nv;
 
 import static org.batfish.minesweeper.CommunityVarCollector.collectCommunityVars;
 import static org.batfish.minesweeper.bdd.CommunityVarConverter.toCommunityVar;
+import static org.batfish.minesweeper.nv.NVFunctions.mkInt;
 import static org.batfish.minesweeper.nv.NVFunctions.mkOr;
 
 import com.google.common.collect.Iterables;
@@ -55,7 +56,7 @@ public class TreeCompiler {
       return "true";
     }
     String lower = "" + y;
-    String upper = "" + y + (int) Math.pow(2, 32 - n);
+    String upper = "" + (y + (int) Math.pow(2, 32 - n));
     return NVFunctions.mkAnd(NVFunctions.mkGe(x, lower), NVFunctions.mkLt(x, upper));
   }
 
@@ -75,11 +76,11 @@ public class TreeCompiler {
     assert (p.getPrefixLength() <= lower && lower <= upper);
     String lowerBitsMatch = firstBitsEqual(env.get_prefixValue(), pfx, len);
     if (lower == upper) {
-      String equalLen = NVFunctions.mkEq(prefixLen, NVFunctions.mkInt(lower));
+      String equalLen = NVFunctions.mkEq(prefixLen, NVFunctions.mkInt(lower,5));
       return NVFunctions.mkAnd(equalLen, lowerBitsMatch);
     } else {
-      String lengthLowerBound = NVFunctions.mkGe(prefixLen, NVFunctions.mkInt(lower));
-      String lengthUpperBound = NVFunctions.mkLe(prefixLen, NVFunctions.mkInt(upper));
+      String lengthLowerBound = NVFunctions.mkGe(prefixLen, NVFunctions.mkInt(lower,5));
+      String lengthUpperBound = NVFunctions.mkLe(prefixLen, NVFunctions.mkInt(upper,5));
       return NVFunctions.mkAnd(lengthLowerBound, NVFunctions.mkAnd(lengthUpperBound, lowerBitsMatch));
     }
   }
@@ -233,7 +234,7 @@ public class TreeCompiler {
       } else {
         throw new BatfishException("invalid protocol: " + proto.name());
       }
-      String protoMatch = "(isProtocol " + env.get_protocol() + " " + x + ")";
+      String protoMatch = "(isProtocol " + env.get_protocol() + " " + mkInt(x,2) + ")";
       debug("MatchProtocol(" + proto.name() + "): " + protoMatch);
       return protoMatch;
     }

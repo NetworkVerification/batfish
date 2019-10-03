@@ -39,13 +39,13 @@ class InitialAttribute {
 
   public String compileAttr(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
-    String c = this._conn ? "Some 0" : "None";
-    String s = this._static ? "Some 1" : "None";
+    String c = this._conn ? "Some 0u8" : "None";
+    String s = this._static ? "Some 1u8" : "None";
     String o = "None";
     if (this._areaId.isPresent()) {
-      o = "Some {ospfAd=110; weight=0; areaType=ospfIntraArea; areaId=" + _areaId.get() + ";}";
+      o = "Some {ospfAd=110u8; weight=0u16; areaType=ospfIntraArea; areaId=" + _areaId.get() + ";}";
     }
-    String b = _bgp ? "Some {bgpAd=20; lp=100; aslen=0; med=80; comms={};}" : "None";
+    String b = _bgp ? "Some {bgpAd=20u8; lp=100; aslen=0; med=80; comms={};}" : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
     sb.append("    let c = ")
         .append(c)
@@ -136,12 +136,12 @@ public class NVCompiler {
         .append("  let b = match x.selected with\n")
         .append("          | None -> None\n")
         .append(
-            "          | Some 0 -> Some {bgpAd = 0; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+            "          | Some 0u2 -> Some {bgpAd = 0u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append(
-            "          | Some 1 -> Some {bgpAd = 1; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+            "          | Some 1u2 -> Some {bgpAd = 1u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append(
-            "          | Some 2 -> Some {bgpAd = 110; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("          | Some 3 -> x.bgp\n")
+            "          | Some 2u2 -> Some {bgpAd = 110u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append("          | Some 3u2 -> x.bgp\n")
         .append("  in\n")
         .append("  match b with\n");
     if (!singlePrefix) {
@@ -354,12 +354,12 @@ public class NVCompiler {
 
     public String compile(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
-    String ospfType = "{ospfAd: int; weight: int; areaType:int; areaId: int;}"; // (ad, cost, area-type, area-id)
-    String connType = "int"; // ad
-    String staticType = "int"; // ad
-    String bgpType = "{bgpAd: int; lp: int; aslen: int; med:int; comms:set[int];}"; // (ad, lp, cost, med, comms)
+    String ospfType = "{ospfAd: int8; weight: int16; areaType:int2; areaId: int;}"; // (ad, cost, area-type, area-id)
+    String connType = "int8"; // ad
+    String staticType = "int8"; // ad
+    String bgpType = "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];}"; // (ad, lp, cost, med, comms)
     // String bgpType = "option[(int,int,int,int)]"; // (ad, lp, cost, med, comms)
-    String bestType = "int"; // proto
+    String bestType = "int2"; // proto
     sb.append("type ospfType = " + ospfType + "\n")
         .append("type bgpType = " + bgpType + "\n")
         .append("type rib = {\n")
@@ -381,12 +381,12 @@ public class NVCompiler {
 
     // Either a single attribute or a map of attributes from prefix to route.
     sb = sb.append("type attribute = " +
-        (singlePrefix ? "rib" : dictType("(int,int)", "rib") )+ "\n\n");
+        (singlePrefix ? "rib" : dictType("(int,int5)", "rib") )+ "\n\n");
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
     if (singlePrefix) {
-      sb.append("symbolic d : (int, int)\n\n");
+      sb.append("symbolic d : (int, int5)\n\n");
     }
 
 
@@ -423,23 +423,23 @@ public class NVCompiler {
 
     sb.append("let nodes = ").append(i).append("\n\n");
 
-    sb.append("let ospfIntraArea = 0\n")
-        .append("let ospfInterArea = 1\n")
-        .append("let ospfE1 = 2\n")
-        .append("let ospfE2 = 3\n\n");
+    sb.append("let ospfIntraArea = 0u2\n")
+        .append("let ospfInterArea = 1u2\n")
+        .append("let ospfE1 = 2u2\n")
+        .append("let ospfE2 = 3u2\n\n");
 
-    sb.append("let protoConn = 0\n")
-        .append("let protoStatic = 1\n")
-        .append("let protoOspf = 2\n")
-        .append("let protoBgp = 3\n\n");
+    sb.append("let protoConn = 0u8\n")
+        .append("let protoStatic = 1u8\n")
+        .append("let protoOspf = 2u8\n")
+        .append("let protoBgp = 3u8\n\n");
 
     sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
         .append("  | Some y -> x = y\n\n");
 
-    sb.append("let min x y = if x < y then x else y\n\n");
-    sb.append("let max x y = if x < y then y else x\n\n");
+    sb.append("let min x y = if x <u8 y then x else y\n\n");
+    sb.append("let max x y = if x <u8 y then y else x\n\n");
 
     sb.append("let pickOption f x y =\n")
         .append("  match (x,y) with\n")
@@ -448,9 +448,9 @@ public class NVCompiler {
         .append("  | (Some a, Some b) -> Some (f a b)\n\n");
 
     sb.append("let betterOspf o1 o2 =\n")
-        .append("  if o1.areaType > o2.areaType then o1\n")
-        .append("  else if o2.areaType > o1.areaType then o2\n")
-        .append("  else if o1.weight <= o2.weight then o1 else o2\n\n");
+        .append("  if o1.areaType >u2 o2.areaType then o1\n")
+        .append("  else if o2.areaType >u2 o1.areaType then o2\n")
+        .append("  else if o1.weight <=u16 o2.weight then o1 else o2\n\n");
 
     sb.append("let betterBgp b1 b2 =\n")
         .append("  if b1.lp > b2.lp then b1\n")
@@ -463,7 +463,7 @@ public class NVCompiler {
         .append("  match (o1,o2) with\n")
         .append("  | (_, None) -> true\n")
         .append("  | (None, _) -> false\n")
-        .append("  | (Some a, Some b) -> a <= b\n\n");
+        .append("  | (Some a, Some b) -> a <=u8 b\n\n");
 
     sb.append("let best c s o b =\n")
         .append("  match (c,s,o,b) with\n")
@@ -471,8 +471,8 @@ public class NVCompiler {
         .append("  | _ -> \n")
         .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
         .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
-        .append("      let (x,p1) = if betterEqOption c s then (c,0) else (s,1) in\n")
-        .append("      let (y,p2) = if betterEqOption o b then (o,2) else (b,3) in\n")
+        .append("      let (x,p1) = if betterEqOption c s then (c,0u2) else (s,1u2) in\n")
+        .append("      let (y,p2) = if betterEqOption o b then (o,2u2) else (b,3u2) in\n")
         .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
 
     sb.append("let mergeValues x y =\n")
@@ -576,7 +576,7 @@ public class NVCompiler {
                 .append(pre.getStartIp().asLong())
                 .append(", ")
                 .append(pre.getPrefixLength())
-                .append("))");
+                .append("u5))");
             first = false;
           }
           sb.append(" then\n").append(initAttr).append("     else ");
@@ -591,7 +591,7 @@ public class NVCompiler {
                 .append(pre.getStartIp().asLong())
                 .append(", ")
                 .append(pre.getPrefixLength())
-                .append(") := route] in\n");
+                .append("u5) := route] in\n");
           }
         }
         sb.append("      d\n");
