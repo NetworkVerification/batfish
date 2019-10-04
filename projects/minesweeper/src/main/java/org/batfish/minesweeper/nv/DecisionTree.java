@@ -143,6 +143,26 @@ public class DecisionTree<T> {
     optimizeAux(_root);
   }
 
+
+
+  private void printTreeParentsAux (Node<T> head, int i) {
+    if (_leafs.contains(head)) {
+      System.out.println("Leaf: " + head.toString() + " parents:" + head.getParents().toString());
+    } else
+    {
+      System.out.println("Node: " + head.toString() + " parents:" +
+          (head.getParents() != null ? head.getParents().toString() : "") + " " + i);
+      System.out.println("Left " + i + ":");
+      printTreeParentsAux(head.getLeft(),i+1);
+      System.out.println("Right " + i + ":");
+      printTreeParentsAux(head.getRight(), i+1);
+    }
+  }
+  public void printTreeParents () {
+    printTreeParentsAux(this._root, 0);
+  }
+
+
 }
 
 

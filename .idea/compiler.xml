@@ -8,28 +8,51 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="allinone" />
+        <module name="allinone (2)" />
         <module name="batfish" />
+        <module name="batfish (2)" />
         <module name="batfish-client" />
+        <module name="batfish-client (2)" />
         <module name="batfish-common-protocol" />
+        <module name="batfish-common-protocol (2)" />
         <module name="bdd" />
         <module name="build-tools" />
+        <module name="build-tools (2)" />
         <module name="coordinator" />
+        <module name="coordinator (2)" />
         <module name="minesweeper" />
         <module name="question" />
+        <module name="question (2)" />
         <module name="symbolic" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
       <module name="allinone" target="1.8" />
+      <module name="allinone (1)" target="1.5" />
+      <module name="allinone (2)" target="1.8" />
       <module name="batfish" target="1.8" />
+      <module name="batfish (1)" target="1.5" />
+      <module name="batfish (2)" target="1.8" />
       <module name="batfish-client" target="1.8" />
+      <module name="batfish-client (1)" target="1.5" />
+      <module name="batfish-client (2)" target="1.8" />
       <module name="batfish-common-protocol" target="1.8" />
+      <module name="batfish-common-protocol (1)" target="1.5" />
+      <module name="batfish-common-protocol (2)" target="1.8" />
       <module name="batfish-parent" target="1.5" />
+      <module name="batfish-parent (1)" target="1.5" />
+      <module name="batfish-parent (2)" target="1.5" />
       <module name="bdd" target="1.8" />
       <module name="build-tools" target="1.8" />
+      <module name="build-tools (1)" target="1.5" />
+      <module name="build-tools (2)" target="1.8" />
       <module name="coordinator" target="1.8" />
+      <module name="coordinator (1)" target="1.5" />
+      <module name="coordinator (2)" target="1.8" />
       <module name="minesweeper" target="1.8" />
       <module name="question" target="1.8" />
+      <module name="question (1)" target="1.5" />
+      <module name="question (2)" target="1.8" />
       <module name="symbolic" target="1.8" />
     </bytecodeTargetLevel>
   </component>

@@ -67,17 +67,17 @@ public class Node<T> {
       //System.out.println("Parents to consider for removal: ");
       //current._parents.forEach(p -> System.out.println(p));
       if (!current._parents.removeIf(isCurrent)) {
-        System.out.println("Failed to remove parent");
+        System.out.println("Failed to remove parent " + head +" of " + current);
       }
     }
 
     // add c to lr position of head, but as an optimization
     // if c.expr=head.expr then add the lr child of c instead.
-    boolean opt = (c.getExpr() != null) && (c.getExpr().equals(head.getExpr())) && (c.getEnv().equals(head.getEnv())) &&
+   /* boolean opt = (c.getExpr() != null) && (c.getExpr().equals(head.getExpr())) && (c.getEnv().equals(head.getEnv())) &&
         (c.getRight() != null && c.getLeft() != null);
-    if (opt) {
+    if (opt) {s
       c = lr ? c.getRight() : c.getLeft();
-    }
+    } */
 
     if (lr) {
       head._right = c;
@@ -86,13 +86,14 @@ public class Node<T> {
     }
 
     // add head to c parents.
-    Tuple<Node<T>, Boolean> parent = new Tuple<>(head, lr);
-    if (c._parents == null) {
-      c._parents = new ArrayList<>();
-      c._parents.add(parent);
-    }
-    else {
-      c._parents.add(parent);
+    if (c != null) {
+      Tuple<Node<T>, Boolean> parent = new Tuple<>(head, lr);
+      if (c._parents == null) {
+        c._parents = new ArrayList<>();
+        c._parents.add(parent);
+      } else {
+        c._parents.add(parent);
+      }
     }
   }
 

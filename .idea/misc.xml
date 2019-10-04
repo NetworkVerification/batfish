@@ -13,7 +13,20 @@
     <option name="originalFiles">
       <list>
         <option value="$PROJECT_DIR$/projects/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/pom.xml" />
       </list>
+    </option>
+    <option name="ignoredFiles">
+      <set>
+        <option value="$PROJECT_DIR$/../../batfish/projects/allinone/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/batfish-client/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/batfish-common-protocol/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/batfish/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/build-tools/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/coordinator/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/pom.xml" />
+        <option value="$PROJECT_DIR$/../../batfish/projects/question/pom.xml" />
+      </set>
     </option>
   </component>
   <component name="NullableNotNullManager">

@@ -941,44 +941,62 @@ class TransferFunctionBuilder {
     // Keep pointers to children of pre and v.
     Node<Boolean> pl = pre.getLeft();
     Node<Boolean> pr = pre.getRight();
+
+    // one of these point to pre.
     Node<Boolean> vl = v1.getLeft();
     Node<Boolean> vr = v1.getRight();
 
-    System.out.println(pl);
-    System.out.println(pl.getParents());
-    //Update the parents of pre to those of v if any.
+    /*System.out.println("pre:" + pre);
+    System.out.println("v1:" + v1);
+    System.out.println("pl:" + pl);
+    System.out.println("pl parents:" + pl.getParents());
+    System.out.println("pre parents");
+    pre.getParents().forEach(p -> System.out.println(p));
+*/
+
+    // Make a copy of v1, v1 will be the left child of pre, v2 the right.
+    Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
+    System.out.println("Updating children of v1, v2");
+
+    // Update the children of v1 and v2 to null for now.
+    // This will also remove v1,v2 from any the parents of vl,vr.
+    v1.setChild(null, false);
+    v1.setChild(null, true);
+    v2.setChild(null, false);
+    v2.setChild(null, true);
+
+    System.out.println("SETTING PARENTS of PRE");
+    //Update the parents of pre to those of v1 if any.
+    pre.setParents(null);
     if (v1.getParents() != null) {
+      //System.out.println("v1 parents");
+      //v1.getParents().forEach(p -> System.out.println(p));
       List<Tuple<Node<Boolean>, Boolean>> vparents = new LinkedList<>();
       vparents.addAll(v1.getParents());
       for (Tuple<Node<Boolean>, Boolean> vparent : vparents) {
         vparent.getFirst().setChild(pre, vparent.getSecond());
       }
+      //System.out.println("pre parents");
+      //pre.getParents().forEach(p -> System.out.println(p));
     }
     else {
-      pre.setParents(null);
       t.setRoot(pre);
     }
 
-    System.out.println("after updating parents of pre to those of v");
-    System.out.println(pl);
-    System.out.println(pl.getParents());
-
-    // Make a copy of v1, v1 will be the left child of pre, v2 the right.
-    Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
+    //System.out.println("just before nulling parents");
+    //System.out.println("pl:" + pl);
+    //System.out.println("pl parents:" + pl.getParents());
+    // v1 and v2 should have null parents.
+    assert(v1.getParents().isEmpty());
+    assert(v2.getParents().isEmpty());
     v1.setParents(null);
     v2.setParents(null);
-    v1.setLeft(null);
-    v1.setRight(null);
-    v2.setLeft(null);
-    v2.setRight(null);
-    // One of the guys above breaks the parents of pre.left (aka pl).
-    System.out.println("just before the crash");
-    System.out.println(pl);
-    System.out.println(pl.getParents());
 
+    // Set the children of pre to v1 and v2.
     pre.setChild(v1, false);
     pre.setChild(v2, true);
 
+    // Set the children of v1 and v2.
     v1.setChild(lr ? vl : pl, false);
     v1.setChild(lr ? pl : vr, true);
     v2.setChild(lr ? vl : pr, false);
@@ -1021,16 +1039,21 @@ class TransferFunctionBuilder {
         if (hasV) {
           List<Tuple<Node<Boolean>, Boolean>> parentsCopy = new ArrayList<>();
           parentsCopy.addAll(parents);
-          parents.forEach(p -> System.out.println(p.toString()));
+         // System.out.println("FindCandidate PreNode parents:");
+          //parents.forEach(p -> System.out.println(p.toString()));
+ /*         System.out.println("parents parents:");
+          try {
+            System.out.println("parents of " + parentsCopy.get(0));
+          parentsCopy.get(0).getFirst().getParents().forEach(p -> System.out.println(p.toString()));
+} catch (NullPointerException e ) { ;} */
           for (int i = 1; i < sz; i++) {
             // Make a copy of it
             Node<Boolean> preCopy = new Node<>(pre.getExpr(), pre.getEnv(), pre.getExport());
             preCopy.setParents(null);
-            System.out.println("sz is:" + sz);
-            System.out.println("i is:" + i);
             Tuple<Node<Boolean>, Boolean> parent = parentsCopy.get(i);
             parent.getFirst().setChild(preCopy, parent.getSecond());
-
+          //  System.out.println("parents of " + parent);
+           // parent.getFirst().getParents().forEach(p -> System.out.println(p.toString()));
             //add the children of pre as children of precopy.
             preCopy.setChild(pre.getLeft(), false);
             preCopy.setChild(pre.getRight(), true);
@@ -1047,11 +1070,16 @@ class TransferFunctionBuilder {
     return null;
   }
 
+
   public void normalize(DecisionTree<Boolean> t) {
+    //t.printTreeParents();
     Node<Boolean> pre = findCandidate(t);
+    //t.printTreeParents();
     while (pre != null) {
       swap(pre, t);
+      //t.printTreeParents();
       pre = findCandidate(t);
+      System.out.println("preNode size: " + t.getPrefixNodes().size());
     }
   }
 }
