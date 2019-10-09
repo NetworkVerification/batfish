@@ -73,11 +73,12 @@ public class Node<T> {
 
     // add c to lr position of head, but as an optimization
     // if c.expr=head.expr then add the lr child of c instead.
-   /* boolean opt = (c.getExpr() != null) && (c.getExpr().equals(head.getExpr())) && (c.getEnv().equals(head.getEnv())) &&
+    boolean opt = c != null && (c.getExpr() != null) && (c.getExpr().equals(head.getExpr())) &&
+        (c.getEnv().equals(head.getEnv())) &&
         (c.getRight() != null && c.getLeft() != null);
-    if (opt) {s
+    if (opt) {
       c = lr ? c.getRight() : c.getLeft();
-    } */
+    }
 
     if (lr) {
       head._right = c;

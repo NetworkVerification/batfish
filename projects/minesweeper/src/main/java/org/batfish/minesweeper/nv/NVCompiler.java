@@ -253,9 +253,8 @@ public class NVCompiler {
                   int numberOfPolicies = impPolicies.size();
                   // If there is only one policy there is no branching on prefixes just map the policy.
                   if (numberOfPolicies == 1) {
-                    sb.append("     let x1 = map (transferBgpImpPol (fun prot b -> \n")
-                        .append("           " + impPolicies.get(0) + ")" + impPolicy + "\n")
-                        .append("     in\n");
+                    sb.append("     map (transferBgpImpPol (fun prot b -> \n")
+                        .append("           " + impPolicies.get(0).getSecond() + ")) " + impPolicy + "\n");
                   } else {
                     for (int idx = 0; idx < numberOfPolicies; idx++) {
                       sb.append("     let x" + (idx + 1) + " =\n")

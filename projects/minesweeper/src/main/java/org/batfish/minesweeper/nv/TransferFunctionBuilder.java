@@ -938,6 +938,7 @@ class TransferFunctionBuilder {
     Node<Boolean> v1 = parent.getFirst();
     Boolean lr = parent.getSecond();
 
+
     // Keep pointers to children of pre and v.
     Node<Boolean> pl = pre.getLeft();
     Node<Boolean> pr = pre.getRight();
@@ -956,7 +957,6 @@ class TransferFunctionBuilder {
 
     // Make a copy of v1, v1 will be the left child of pre, v2 the right.
     Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
-    System.out.println("Updating children of v1, v2");
 
     // Update the children of v1 and v2 to null for now.
     // This will also remove v1,v2 from any the parents of vl,vr.
@@ -965,7 +965,6 @@ class TransferFunctionBuilder {
     v2.setChild(null, false);
     v2.setChild(null, true);
 
-    System.out.println("SETTING PARENTS of PRE");
     //Update the parents of pre to those of v1 if any.
     pre.setParents(null);
     if (v1.getParents() != null) {
@@ -1025,6 +1024,7 @@ class TransferFunctionBuilder {
       }
       // If the node has more than 1 parents
       else if (sz > 1) {
+        Node<Boolean> result = pre;
         // then if it has a parent that is not a prefix expression
         boolean hasV = false;
         for (Tuple<Node<Boolean>, Boolean> parent : parents) {
@@ -1052,6 +1052,9 @@ class TransferFunctionBuilder {
             preCopy.setParents(null);
             Tuple<Node<Boolean>, Boolean> parent = parentsCopy.get(i);
             parent.getFirst().setChild(preCopy, parent.getSecond());
+            if (!preNodes.contains(parent.getFirst())) {
+              result = preCopy;
+            }
           //  System.out.println("parents of " + parent);
            // parent.getFirst().getParents().forEach(p -> System.out.println(p.toString()));
             //add the children of pre as children of precopy.
@@ -1062,8 +1065,7 @@ class TransferFunctionBuilder {
             t.getPrefixNodes().add(preCopy);
             t.getAllNodes().add(preCopy);
           }
-          System.out.println("after findCandidate pre has parents:" + pre.getParents().size());
-          return pre;
+          return result;
         }
       }
     }
@@ -1072,14 +1074,10 @@ class TransferFunctionBuilder {
 
 
   public void normalize(DecisionTree<Boolean> t) {
-    //t.printTreeParents();
     Node<Boolean> pre = findCandidate(t);
-    //t.printTreeParents();
     while (pre != null) {
       swap(pre, t);
-      //t.printTreeParents();
       pre = findCandidate(t);
-      System.out.println("preNode size: " + t.getPrefixNodes().size());
     }
   }
 }

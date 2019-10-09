@@ -1,0 +1,4 @@
+init-snapshot Columbus tr-smt-testnetwork
+
+#get smt-reachability
+get compile singlePrefix="false"

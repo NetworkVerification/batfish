@@ -8,10 +8,8 @@ import static org.batfish.minesweeper.nv.NVFunctions.mkOr;
 import com.google.common.collect.Iterables;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.batfish.common.BatfishException;
 import org.batfish.datamodel.CommunityList;
 import org.batfish.datamodel.CommunityListLine;
@@ -25,7 +23,6 @@ import org.batfish.datamodel.RoutingProtocol;
 import org.batfish.datamodel.SubRange;
 import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
 import org.batfish.datamodel.routing_policy.expr.CommunitySetExpr;
-import org.batfish.datamodel.routing_policy.expr.Disjunction;
 import org.batfish.datamodel.routing_policy.expr.ExplicitPrefixSet;
 import org.batfish.datamodel.routing_policy.expr.MatchCommunitySet;
 import org.batfish.datamodel.routing_policy.expr.MatchPrefixSet;
@@ -79,8 +76,8 @@ public class TreeCompiler {
       String equalLen = NVFunctions.mkEq(prefixLen, NVFunctions.mkInt(lower,5));
       return NVFunctions.mkAnd(equalLen, lowerBitsMatch);
     } else {
-      String lengthLowerBound = NVFunctions.mkGe(prefixLen, NVFunctions.mkInt(lower,5));
-      String lengthUpperBound = NVFunctions.mkLe(prefixLen, NVFunctions.mkInt(upper,5));
+      String lengthLowerBound = NVFunctions.mkGe(prefixLen, NVFunctions.mkInt(lower,5), 5);
+      String lengthUpperBound = NVFunctions.mkLe(prefixLen, NVFunctions.mkInt(upper,5), 5);
       return NVFunctions.mkAnd(lengthLowerBound, NVFunctions.mkAnd(lengthUpperBound, lowerBitsMatch));
     }
   }
@@ -126,7 +123,12 @@ public class TreeCompiler {
       // Compute if the other best route is relevant for this match statement
       String acc = "false";
       for (PrefixRange range : ranges) {
-        acc = mkOr(acc, isRelevantFor(other, range));
+        if (acc.equals("false")) {
+          acc = isRelevantFor(other, range);
+        }
+        else {
+          acc = mkOr(acc, isRelevantFor(other, range));
+        }
       }
 
       return ("(" + acc + ")");

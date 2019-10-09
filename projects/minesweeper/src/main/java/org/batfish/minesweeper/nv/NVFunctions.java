@@ -87,12 +87,20 @@ public final class NVFunctions {
     return "(" + x + " >= " + y + ")";
   }
 
+  public static String mkGe(String x, String y, int sz) {
+    return "(" + x + " >=u" + sz + " " + y + ")";
+  }
+
   public static String mkGt(String x, String y) {
     return "(" + x + " > " + y + ")";
   }
 
   public static String mkLe(String x, String y) {
     return "(" + x + " <= " + y + ")";
+  }
+
+  public static String mkLe(String x, String y, int sz) {
+    return "(" + x + " <=u" + sz + " " + y + ")";
   }
 
   public static String mkLt(String x, String y) {

@@ -150,8 +150,15 @@ public class DecisionTree<T> {
       System.out.println("Leaf: " + head.toString() + " parents:" + head.getParents().toString());
     } else
     {
-      System.out.println("Node: " + head.toString() + " parents:" +
-          (head.getParents() != null ? head.getParents().toString() : "") + " " + i);
+      if (_prefixNodes.contains(head)) {
+        System.out.println("Prefix Node: " + head.toString() + " parents:" +
+            (head.getParents() != null ? head.getParents().toString() : "[]")  + i);
+      }
+      else {
+        System.out.println("Node: " + head.toString() + " parents:" + (head.getParents() != null
+            ? head.getParents().toString()
+            : "[]") + i);
+      }
       System.out.println("Left " + i + ":");
       printTreeParentsAux(head.getLeft(),i+1);
       System.out.println("Right " + i + ":");
