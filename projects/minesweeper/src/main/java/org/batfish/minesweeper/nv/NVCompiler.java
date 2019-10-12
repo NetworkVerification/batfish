@@ -165,6 +165,7 @@ public class NVCompiler {
         if (edge.getPeer() != null) {
           Interface iface = edge.getStart();
           //_graph.isInterfaceActive(Protocol.BGP, iface) the guard below used to be this.
+          System.out.println("Encoding BGP edge: " + edge);
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(edgeMap.get(edge))) {
             bgpSet.add(edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);

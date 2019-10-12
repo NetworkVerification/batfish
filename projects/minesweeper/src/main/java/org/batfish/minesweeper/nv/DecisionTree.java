@@ -42,7 +42,9 @@ public class DecisionTree<T> {
       if (_leafs.contains(targetLeaf)) {
         Node<T> root = t._root;
         List<Tuple<Node<T>, Boolean>> parents = new ArrayList<>();
-        parents.addAll(targetLeaf.getParents());
+        if (targetLeaf.getParents() != null) {
+          parents.addAll(targetLeaf.getParents());
+        }
         int sz = parents.size();
         /*System.out.print("targetLeaf: " + targetLeaf + " has parents: ");
         for (int i=0; i < sz; i++) {

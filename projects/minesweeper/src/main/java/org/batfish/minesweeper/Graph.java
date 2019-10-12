@@ -558,7 +558,12 @@ public class Graph {
             Ip ip = ipList.get(i);
             BgpActivePeerConfig n = ns.get(i);
             Interface iface = ge.getStart();
-            if (ip != null && iface.getConcreteAddress().getPrefix().containsIp(ip)) {
+            // if it is running bgp and the ip of the edge matches the one stored previously
+            // and these are not from the same AS!
+            if (ip != null
+                && iface.getConcreteAddress() != null
+                && iface.getConcreteAddress().getPrefix().containsIp(ip)
+                && (!n.getRemoteAsns().equals(LongSpace.of(n.getLocalAs())))) {
               _ebgpNeighbors.put(ge, n);
             }
           }

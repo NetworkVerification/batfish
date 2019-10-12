@@ -621,7 +621,7 @@ class TransferFunctionBuilder {
     //System.out.println("List of statements");
     //statements.forEach(stmt -> System.out.println(stmt));
     if (statements.isEmpty()) {
-      return null;
+      return computeReturn(nodeP, true);
     }
     else {
       TransferParam<Environment> p = nodeP.getEnv();

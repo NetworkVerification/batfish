@@ -1,4 +1,3 @@
-init-snapshot Columbus tr-smt-testnetwork
-
+init-snapshot af19-config-master tr-smt-uscarrier
 #get smt-reachability
-get compile singlePrefix="false"
+get compile singlePrefix="true"
