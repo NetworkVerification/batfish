@@ -745,6 +745,7 @@ public class Encoder {
 
     long start = System.currentTimeMillis();
     Status status = _solver.check();
+    //Status status = Status.UNSATISFIABLE;
     long time = System.currentTimeMillis() - start;
 
     VerificationStats stats = null;

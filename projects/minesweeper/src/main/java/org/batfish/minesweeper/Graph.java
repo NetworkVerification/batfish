@@ -32,6 +32,7 @@ import org.batfish.datamodel.ConcreteInterfaceAddress;
 import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Ip;
+import org.batfish.datamodel.LinkLocalAddress;
 import org.batfish.datamodel.LongSpace;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.PrefixRange;
@@ -560,11 +561,19 @@ public class Graph {
             Interface iface = ge.getStart();
             // if it is running bgp and the ip of the edge matches the one stored previously
             // and these are not from the same AS!
-            if (ip != null
-                && iface.getConcreteAddress() != null
-                && iface.getConcreteAddress().getPrefix().containsIp(ip)
-                && (!n.getRemoteAsns().equals(LongSpace.of(n.getLocalAs())))) {
-              _ebgpNeighbors.put(ge, n);
+            if (ip != null) {
+              for (ConcreteInterfaceAddress addr : iface.getAllConcreteAddresses()) {
+                if (addr.getPrefix() != null && addr.getPrefix().containsIp(ip) &&
+                    (!n.getRemoteAsns().equals(LongSpace.of(n.getLocalAs())))) {
+                  _ebgpNeighbors.put(ge,n);
+                }
+              }
+              for (LinkLocalAddress addr : iface.getAllLinkLocalAddresses()) {
+                if (addr.getPrefix() != null && addr.getPrefix().containsIp(ip) &&
+                    (!n.getRemoteAsns().equals(LongSpace.of(n.getLocalAs())))) {
+                  _ebgpNeighbors.put(ge,n);
+                }
+              }
             }
           }
         }

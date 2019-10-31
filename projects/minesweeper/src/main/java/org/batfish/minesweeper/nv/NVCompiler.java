@@ -130,32 +130,39 @@ public class NVCompiler {
           .append("  | None -> {x with bgp=None}\n")
           .append("  | Some b ->\n")
           .append("    {x with bgp=policy x.selected b}\n\n");
-    }
 
     sb.append(" let transferBgpPol policy x =\n")
         .append("  let b = match x.selected with\n")
         .append("          | None -> None\n")
         .append(
-            "          | Some 0u2 -> Some {bgpAd = 0u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+            "          | Some 0u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append(
-            "          | Some 1u2 -> Some {bgpAd = 1u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+            "          | Some 1u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append(
-            "          | Some 2u2 -> Some {bgpAd = 110u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+            "          | Some 2u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
         .append("          | Some 3u2 -> x.bgp\n")
         .append("  in\n")
         .append("  match b with\n");
-    if (!singlePrefix) {
           sb.append("  | None -> {x with bgp=None}\n")
           .append("  | Some b ->\n")
           .append("    {x with bgp=policy x.selected b}\n\n");
     }
-    else {
-      sb.append("  | None -> None\n")
-          .append("  | Some b ->\n")
-          .append("    policy x.selected b\n\n");
+
+
+    sb.append(" let transferBgp e x0 =\n");
+
+    if (singlePrefix) {
+      sb.append("  match x0.selected with\n")
+          .append("  | None -> None\n")
+          .append("  | Some prot -> \n")
+          .append(
+              "    (let b = if (prot = 3u2) then match x0.bgp with\n"
+                  + "                  | None -> ({bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}})\n"
+                  + "                  | Some b -> b\n"
+                  + "          else ({bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}) in\n");
     }
 
-    sb.append(" let transferBgp e x0 =\n").append("  match e with\n");
+    sb.append("  match e with\n");
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
@@ -164,8 +171,6 @@ public class NVCompiler {
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           Interface iface = edge.getStart();
-          //_graph.isInterfaceActive(Protocol.BGP, iface) the guard below used to be this.
-          System.out.println("Encoding BGP edge: " + edge);
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(edgeMap.get(edge))) {
             bgpSet.add(edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
@@ -219,8 +224,8 @@ public class NVCompiler {
               impPolicy = "b";
               String expPolicy = exportTreeCompiler.toNvString();
               sb.append("     let (prefix, prefixLen) = d in\n")
-                  .append("     let b = (transferBgpPol (fun prot b -> \n")
-                  .append("           " + expPolicy + ")) x0\n")
+                  .append("     let b = \n")
+                  .append("           " + expPolicy + "\n")
                   .append("     in\n");
             }
             // Do import policy
@@ -237,6 +242,7 @@ public class NVCompiler {
                   invEdge);
               Configuration invConfig = _graph.getConfigurations().get(otherRouter);
               if ((importPolicy != null) && (importPolicy.getStatements() != null)) {
+
                 importStatements = importPolicy.getStatements();
                 TransferFunctionBuilder importTransBuilder = new TransferFunctionBuilder(invConfig,
                     importStatements,
@@ -278,7 +284,7 @@ public class NVCompiler {
                   sb.append("         (match b with\n")
                       .append("         | None -> None\n")
                       .append("         | Some b ->\n")
-                      .append("           " + impPolicy + ")\n\n");
+                      .append("           " + impPolicy + ")\n");
                 }
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
@@ -290,33 +296,11 @@ public class NVCompiler {
         }
       }
     }
+    if (singlePrefix) {
+      sb.append(")\n\n");
+    }
   }
 
-
-           /* if (treeCompiler == null) {
-              treeCompiler = new TreeCompiler(policyTree, null, config);
-            }
-
-            String computedPolicy = treeCompiler.toNvString();
-*/
-           /* if (!computedPolicy.equals("None")) {
-              sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-              sb.append("\n    ");
-              sb.append(computedPolicy);
-              sb.append("\n");
-            } */
-           /* if (!expPolicy.equals("None")) {
-              sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-              sb.append("\n    let b = \n" + expPolicy + "\n    in\n");
-              if (impPolicy.equals("b")) {
-                sb.append("      b\n");
-              } else {
-                sb.append("    (match b with\n")
-                    .append("     | None -> None\n")
-                    .append("     | Some b -> \n")
-                    .append("      " + impPolicy + ")\n");
-              }
-            }*/
 
   private void ospfTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
     sb.append(" let transferOspf edge o =\n")
@@ -433,31 +417,36 @@ public class NVCompiler {
         .append("let protoOspf = 2u8\n")
         .append("let protoBgp = 3u8\n\n");
 
-    sb.append("let isProtocol fib x =\n")
+    if (singlePrefix) {
+      sb.append("let isProtocol fib x = fib = x\n");
+    }
+    else {
+      sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
-        .append("  | Some y -> x = y\n\n");
+        .append("  | Some y -> x = y\n");
+    }
 
-    sb.append("let min x y = if x <u8 y then x else y\n\n");
-    sb.append("let max x y = if x <u8 y then y else x\n\n");
+
+    sb.append("let min x y = x <u8 y\n\n");
 
     sb.append("let pickOption f x y =\n")
         .append("  match (x,y) with\n")
-        .append("  | (None, _) -> y")
-        .append("  | (_, None) -> x\n")
-        .append("  | (Some a, Some b) -> Some (f a b)\n\n");
+        .append("  | (None, _) -> false")
+        .append("  | (_, None) -> true\n")
+        .append("  | (Some a, Some b) -> f a b\n\n");
 
     sb.append("let betterOspf o1 o2 =\n")
-        .append("  if o1.areaType >u2 o2.areaType then o1\n")
-        .append("  else if o2.areaType >u2 o1.areaType then o2\n")
-        .append("  else if o1.weight <=u16 o2.weight then o1 else o2\n\n");
+        .append("  if o1.areaType >u2 o2.areaType then true\n")
+        .append("  else if o2.areaType >u2 o1.areaType then false\n")
+        .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
 
     sb.append("let betterBgp b1 b2 =\n")
-        .append("  if b1.lp > b2.lp then b1\n")
-        .append("  else if b2.lp > b1.lp then b2\n")
-        .append("  else if b1.aslen < b2.aslen then b1\n")
-        .append("  else if b2.aslen < b1.aslen then b2\n")
-        .append("  else if b1.med >= b2.med then b1 else b2\n\n");
+        .append("  if b1.lp > b2.lp then true\n")
+        .append("  else if b2.lp > b1.lp then false\n")
+        .append("  else if b1.aslen < b2.aslen then true\n")
+        .append("  else if b2.aslen < b1.aslen then false\n")
+        .append("  else if b1.med >= b2.med then true else false\n\n");
 
     sb.append("let betterEqOption o1 o2 =\n")
         .append("  match (o1,o2) with\n")
@@ -476,21 +465,23 @@ public class NVCompiler {
         .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
 
     sb.append("let mergeValues x y =\n")
-        .append("  let c = pickOption min x.connected y.connected in\n")
-        .append("  let s = pickOption min x.static y.static in\n")
-        .append("  let o = pickOption betterOspf x.ospf y.ospf in\n")
-        .append("  let b = pickOption betterBgp x.bgp y.bgp in\n")
+        .append("  let c = if (pickOption min x.connected y.connected) then x.connected else y.connected in\n")
+        .append("  let s = if (pickOption min x.static y.static) then x.static else y.static in\n")
+        .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
+        .append("  let b = if (pickOption betterBgp x.bgp y.bgp) then x.bgp else y.bgp in\n")
         .append("  { connected = c;\n"
             +   "    static = s;\n"
             +   "    ospf = o;\n"
             +   "    bgp = b;\n"
             +   "    selected = best c s o b}\n\n");
 
+    String defaultAttr = "(createDict ({connected=None; static=None; ospf=None; bgp=None; selected=None}))";
     /* Merge one attribute or combine over map */
     if (singlePrefix) {
       sb.append("let merge node x y = mergeValues x y\n\n");
     } else {
       sb.append("let merge node x y = combine mergeValues x y\n\n");
+       // .append("                              (Some "+ defaultAttr +") None (Some "+ defaultAttr +") None\n");
     }
 
     sb.append("let init node =\n");

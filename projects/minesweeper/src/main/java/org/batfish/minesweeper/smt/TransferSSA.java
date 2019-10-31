@@ -133,7 +133,7 @@ import org.batfish.minesweeper.utils.MsPair;
  *
  * @author Ryan Beckett
  */
-class TransferSSA {
+class     TransferSSA {
 
   private static final int INLINE_HEURISTIC = 3000;
 

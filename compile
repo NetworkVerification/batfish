@@ -1,3 +1,4 @@
-init-snapshot af19-config-master tr-smt-uscarrier
-#get smt-reachability
-get compile singlePrefix="true"
+init-snapshot uscarrier tr-smt-uscarrier
+#init-snapshot fattree20pol tr-smt-fat8
+#get smt-forwarding baseEnvType=none, benchmark=true
+get compile singlePrefix="false"
