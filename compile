@@ -1,4 +1,2 @@
-init-snapshot uscarrier tr-smt-uscarrier
-#init-snapshot fattree20pol tr-smt-fat8
-#get smt-forwarding baseEnvType=none, benchmark=true
-get compile singlePrefix="false"
+init-snapshot benchmarks/FatTrees/fattree28pol tr-smt-uscarrier
+get compile singlePrefix="true"
