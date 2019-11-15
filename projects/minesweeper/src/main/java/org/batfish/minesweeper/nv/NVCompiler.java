@@ -152,7 +152,8 @@ public class NVCompiler {
     sb.append(" let transferBgp e x0 =\n");
 
     if (singlePrefix) {
-      sb.append("  match x0.selected with\n")
+      sb.append("  let (prefix, prefixLen) = d in\n")
+        .append("  match x0.selected with\n")
           .append("  | None -> None\n")
           .append("  | Some prot -> \n")
           .append(
@@ -223,8 +224,7 @@ public class NVCompiler {
             } else {
               impPolicy = "b";
               String expPolicy = exportTreeCompiler.toNvString();
-              sb.append("     let (prefix, prefixLen) = d in\n")
-                  .append("     let b = \n")
+              sb.append("     let b = \n")
                   .append("           " + expPolicy + "\n")
                   .append("     in\n");
             }
