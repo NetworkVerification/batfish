@@ -1,2 +1,2 @@
-init-snapshot benchmarks/FatTrees/fattree28pol tr-smt-uscarrier
-get compile singlePrefix="true"
+init-snapshot benchmarks/FatTrees/fattree36pol tr-smt-uscarrier
+get compile singlePrefix="false"

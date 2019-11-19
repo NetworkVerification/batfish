@@ -107,8 +107,217 @@ public class NVCompiler {
     return "dict["+keyTyp+", "+ valTyp+"]";
   }
 
-  private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
 
+  // Fixing this only for simulator right now.
+  private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+    Set<String> bgpSet = new HashSet<>();
+    Map<String, String> compiledExportPolicies = new HashMap<>();
+    Map<String, String> compiledImportPolicies = new HashMap<>();
+
+    Map<GraphEdge, String> edgeToImportPolicy = new HashMap<>();
+    Map<GraphEdge, String> edgeToExportPolicy = new HashMap<>();
+
+    for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
+      String router = entry.getKey();
+      Configuration config = entry.getValue();
+      for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
+        if (edge.getPeer() != null) {
+          if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(edgeMap.get(edge))) {
+            bgpSet.add(edgeMap.get(edge));
+
+            // Doing export policy
+            RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
+            List<Statement> statements;
+            if ((policy != null) && (policy.getStatements() != null)) {
+              statements = policy.getStatements();
+            } else {
+              statements = Collections.emptyList();
+            }
+
+            // Have we already compiled this policy?
+       //     if (!compiledExportPolicies.containsKey(statements)) {
+              // Build the decision tree for the export policy
+              TransferFunctionBuilder exportTransBuilder =
+                  new TransferFunctionBuilder(config, statements, edge, true);
+              DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
+
+              // Normalize the tree if we want to export for simulation.
+              exportTransBuilder.normalize(exportTree);
+              // Apply some basic optimizations
+              exportTree.optimize();
+
+              /* Build NV string that corresponds to export tree */
+              TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config);
+              List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
+
+              StringBuilder exportString = new StringBuilder();
+              int numberOfPolicies = expPolicies.size();
+
+             // String expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
+              //exportString.append("let " + expPolicyName + " =\n");
+              // If there is only one policy there is no branching on prefixes just map the policy.
+              if (numberOfPolicies == 1) {
+                exportString
+                    .append("     map (transferBgpPol (fun prot b -> \n")
+                    .append("           " + expPolicies.get(0).getSecond() + ")) x\n\n");
+              } else {
+                for (int idx = 0; idx < numberOfPolicies; idx++) {
+                  exportString
+                      .append("     let x =\n")
+                      .append(
+                          "     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
+                              + "                   "
+                              + expPolicies.get(idx).getFirst()
+                              + ")\n")
+                      .append("         (transferBgpPol (fun prot b ->\n")
+                      .append(
+                          "               "
+                              + expPolicies.get(idx).getSecond()
+                              + ")) x\n")
+                      .append("    in\n");
+                }
+                exportString.append("     x\n\n");
+              }
+
+              // Add to string.
+              String expPolicyName = compiledExportPolicies.get(exportString.toString());
+              if (expPolicyName == null) {
+                expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
+                sb.append("let " + expPolicyName + " x =\n")
+                    .append(exportString.toString());
+                compiledExportPolicies.put(exportString.toString(), expPolicyName);
+              }
+              edgeToExportPolicy.put(edge, expPolicyName);
+           /* }
+            else {
+            edgeToExportPolicy.put(edge, compiledExportPolicies.get(statements));
+            } */
+
+
+            // Do import policy
+            List<Statement> importStatements;
+            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
+
+            if (invEdge != null) {
+              String otherRouter = invEdge.getRouter();
+              RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter,
+                  Protocol.BGP,
+                  invEdge);
+              Configuration invConfig = _graph.getConfigurations().get(otherRouter);
+              if ((importPolicy != null) && (importPolicy.getStatements() != null)) {
+
+                importStatements = importPolicy.getStatements();
+                //if (!compiledImportPolicies.containsKey(importStatements)) {
+                  TransferFunctionBuilder importTransBuilder = new TransferFunctionBuilder(invConfig,
+                    importStatements,
+                    invEdge,
+                    false);
+
+                  DecisionTree<Boolean> importTree = importTransBuilder.compute();
+
+                  // Should only do this for Simulator, but leaving out smt for now.
+                  importTransBuilder.normalize(importTree);
+                  importTree.optimize();
+
+                  TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null);
+                  List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
+
+                  StringBuilder importString = new StringBuilder();
+
+                  numberOfPolicies = impPolicies.size();
+                  // If there is only one policy there is no branching on prefixes just map the policy.
+                  if (numberOfPolicies == 1) {
+                    importString.append("     map (transferBgpImpPol (fun prot b -> \n")
+                        .append("           " + impPolicies.get(0).getSecond() + ")) \n");
+                  } else {
+                    for (int idx = 0; idx < numberOfPolicies; idx++) {
+                      importString.append("     let x =\n")
+                          .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
+                              + "                   " + impPolicies.get(idx).getFirst() + ")\n")
+                          .append("         (transferBgpImpPol (fun prot b ->\n")
+                          .append("               " + impPolicies.get(idx).getSecond() + ")) x \n");
+                      }
+                      importString.append("     in\n");
+                    }
+                    importString.append("     x\n\n");
+
+                String impPolicyName = compiledImportPolicies.get(importString.toString());
+                if (impPolicyName == null) {
+                  impPolicyName = "bgpImportPol" + compiledImportPolicies.size();
+                  sb.append("let " + impPolicyName + " x =\n")
+                      .append(importString.toString());
+                  compiledImportPolicies.put(importString.toString(), impPolicyName);
+                }
+                edgeToImportPolicy.put(edge, impPolicyName);
+                  }
+                }
+              }
+            }
+          }
+        }
+    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> ret = new Tuple<>(edgeToExportPolicy, edgeToImportPolicy);
+      return ret;
+    }
+
+  // Just to make my life easier making it separately now, but do it for single prefix too.
+  private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+    sb.append(" let transferBgpImpPol policy x =\n")
+        .append("  match x.bgp with\n")
+        .append("  | None -> {x with bgp=None}\n")
+        .append("  | Some b ->\n")
+        .append("    {x with bgp=policy x.selected b}\n\n");
+
+    sb.append(" let transferBgpPol policy x =\n")
+        .append("  let b = match x.selected with\n")
+        .append("          | None -> None\n")
+        .append(
+            "          | Some 0u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append(
+            "          | Some 1u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append(
+            "          | Some 2u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
+        .append("          | Some 3u2 -> x.bgp\n")
+        .append("  in\n")
+        .append("  match b with\n");
+    sb.append("  | None -> {x with bgp=None}\n")
+        .append("  | Some b ->\n")
+        .append("    {x with bgp=policy x.selected b}\n\n");
+
+    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
+        computeEquivalentPolicies(sb, edgeMap);
+
+    sb.append(" let transferBgp e x =\n").append("  match e with\n");
+
+    Set<String> bgpSet = new HashSet<>();
+    for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
+      String router = entry.getKey();
+      Configuration config = entry.getValue();
+      for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
+        if (edge.getPeer() != null) {
+          if (_graph.isEdgeUsed(config, Protocol.BGP, edge)
+              && !bgpSet.contains(edgeMap.get(edge))) {
+            bgpSet.add(edgeMap.get(edge));
+            String expPolicy = policies.getFirst().get(edge);
+            sb.append("   | ")
+                .append(edgeMap.get(edge))
+                .append(" ->\n")
+                .append("     let x = " + expPolicy + " x in\n");
+
+            // Do import policy now
+            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
+            String impPolicy = policies.getSecond().get(invEdge);
+            if (impPolicy == null) {
+              sb.append("     x\n");
+            } else {
+              sb.append("    " + impPolicy + " x\n");
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
     /*
     sb.append(" let transferBgp edge x =\n")
         .append("  let (prefix, prefixLen) = d in\n")
@@ -595,7 +804,13 @@ public class NVCompiler {
       sb.append("  | _ -> d\n\n");
     }
     ospfTrans(singlePrefix,sb,edgeMap);
-    bgpTrans(singlePrefix,sb,edgeMap);
+
+    if (singlePrefix) {
+      bgpTrans(singlePrefix, sb, edgeMap);
+    }
+    else {
+      bgpTransAllPrefixes(sb, edgeMap);
+    }
 
     if (singlePrefix) {
       sb.append("let trans edge x = \n")
@@ -604,7 +819,7 @@ public class NVCompiler {
           .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
     }
     else {
-      sb.append("let trans edge x = \n")
+      sb.append("\nlet trans edge x = \n")
           .append("  let x = transferBgp edge x in\n")
           .append("  let x = map (fun x -> {x with ospf=transferOspf edge x.ospf; connected=None; static=None}) x in\n")
           .append("  x\n\n");
