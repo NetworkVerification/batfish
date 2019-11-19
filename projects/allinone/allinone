@@ -16,7 +16,7 @@ if [[ " $@ " =~ " -coordinatorargs " ]]; then
 else
   ALLINONE_COORDINATOR_ARG=(-coordinatorargs "-templatedirs ${ALLINONE_QUESTIONS_PATH}")
 fi
-java ${ALLINONE_JAVA_ARGS} -cp "${ALLINONE_JAR}${CPSEP}${ALLINONE_CLASSPATH}" org.batfish.allinone.Main "${ALLINONE_COORDINATOR_ARG[@]}" "$@"
+java -Xmx16g ${ALLINONE_JAVA_ARGS} -cp "${ALLINONE_JAR}${CPSEP}${ALLINONE_CLASSPATH}" org.batfish.allinone.Main "${ALLINONE_COORDINATOR_ARG[@]}" "$@"
 EXIT_CODE=$?
 if batfish_cygwin; then
    stty icanon echo
