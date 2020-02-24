@@ -1,6 +1,2 @@
-<<<<<<< HEAD
 init-snapshot benchmarks/FatTrees/fattree16pol tr-smt-uscarrier
-=======
-init-snapshot benchmarks/FatTrees/fattree36pol tr-smt-uscarrier
->>>>>>> cac667b92274b9750e2fb0be619fd81fa60819f4
 get compile singlePrefix="false"
