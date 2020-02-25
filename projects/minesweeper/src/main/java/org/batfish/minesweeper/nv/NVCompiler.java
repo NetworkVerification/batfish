@@ -29,23 +29,27 @@ class InitialAttribute {
   private Boolean _static;
   private Optional<Long> _areaId;
   private Boolean _bgp;
+  private CompilerOptions _flags;
 
-  public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp) {
+  public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp, CompilerOptions flags) {
     _conn = conn;
     _static = stat;
     _areaId = areaId;
     _bgp = bgp;
+    _flags = flags;
   }
 
-  public String compileAttr(boolean singlePrefix) {
+  public String compileAttr(int node, boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
+    Attributes attrs = new Attributes(_flags);
     String c = this._conn ? "Some 0u8" : "None";
     String s = this._static ? "Some 1u8" : "None";
     String o = "None";
     if (this._areaId.isPresent()) {
-      o = "Some {ospfAd=110u8; weight=0u16; areaType=ospfIntraArea; areaId=" + _areaId.get() + ";}";
+      o = attrs.buildOspfAttribute("110u8", "0u16", "ospfIntraArea",  _areaId.get().toString(), "None", node + "n");
     }
-    String b = _bgp ? "Some {bgpAd=20u8; lp=100; aslen=0; med=80; comms={};}" : "None";
+    String b = _bgp ?
+        attrs.buildBgpAttribute("100","20u8","0","80","{}","None", node + "n") : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
     sb.append("    let c = ")
         .append(c)
@@ -95,8 +99,13 @@ public class NVCompiler {
 
   private Graph _graph;
 
-  public NVCompiler(IBatfish batfish) {
+  private CompilerOptions _flags;
+  private Attributes _attrs;
+
+  public NVCompiler(IBatfish batfish, CompilerOptions flags) {
     _graph = new Graph(batfish);
+    _flags = flags;
+    _attrs = new Attributes(flags);
   }
 
   private String optionType(String typ) {
@@ -147,7 +156,7 @@ public class NVCompiler {
               exportTree.optimize();
 
               /* Build NV string that corresponds to export tree */
-              TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config);
+              TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
               List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
 
               StringBuilder exportString = new StringBuilder();
@@ -158,7 +167,7 @@ public class NVCompiler {
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
                 exportString
-                    .append("     map (transferBgpPol (fun prot b -> \n")
+                    .append("     map (transferBgpPol e (fun prot b -> \n")
                     .append("           " + expPolicies.get(0).getSecond() + ")) x\n\n");
               } else {
                 for (int idx = 0; idx < numberOfPolicies; idx++) {
@@ -169,7 +178,7 @@ public class NVCompiler {
                               + "                   "
                               + expPolicies.get(idx).getFirst()
                               + ")\n")
-                      .append("         (transferBgpPol (fun prot b ->\n")
+                      .append("         (transferBgpPol e (fun prot b ->\n")
                       .append(
                           "               "
                               + expPolicies.get(idx).getSecond()
@@ -183,7 +192,7 @@ public class NVCompiler {
               String expPolicyName = compiledExportPolicies.get(exportString.toString());
               if (expPolicyName == null) {
                 expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
-                sb.append("let " + expPolicyName + " x =\n")
+                sb.append("let " + expPolicyName + " e x =\n")
                     .append(exportString.toString());
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
               }
@@ -219,7 +228,7 @@ public class NVCompiler {
                   importTransBuilder.normalize(importTree);
                   importTree.optimize();
 
-                  TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null);
+                  TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
                   List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
 
                   StringBuilder importString = new StringBuilder();
@@ -259,6 +268,18 @@ public class NVCompiler {
       return ret;
     }
 
+
+    private Tuple<String, String> redistributeIntoBgp(String x) {
+      // Default bgp attribute for connected/static
+      String b = _attrs.buildBgpAttribute("100","20u8","0","80",
+          "{}","None", "getSourceNode e");
+      // For ospf
+      String bospf = _attrs.buildBgpAttribute("100","20u8","0","80",
+          "{}","(match "+x+".ospf with | None -> None | Some o -> o.ospfNextHop)",
+          "(match "+x+".ospf with | None -> getSourceNode e | Some o -> o.ospfOrigin)");
+      return new Tuple<>(b,bospf);
+    }
+
   // Just to make my life easier making it separately now, but do it for single prefix too.
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap) {
     sb.append(" let transferBgpImpPol policy x =\n")
@@ -267,20 +288,21 @@ public class NVCompiler {
         .append("  | Some b ->\n")
         .append("    {x with bgp=policy x.selected b}\n\n");
 
-    sb.append(" let transferBgpPol policy x =\n")
+    // Redistribution attributes
+    Tuple<String, String> redistAttrs = redistributeIntoBgp("x");
+
+    sb.append(" let transferBgpPol e policy x =\n")
         .append("  let b = match x.selected with\n")
         .append("          | None -> None\n")
-        .append(
-            "          | Some 0u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append(
-            "          | Some 1u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append(
-            "          | Some 2u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("          | Some 3u2 -> x.bgp\n")
+        .append("          | Some 0u2 -> " + redistAttrs.getFirst() + "\n")
+        .append("          | Some 1u2 -> " + redistAttrs.getFirst() + "\n") // TODO: check this case
+        .append("          | Some 2u2 -> " + redistAttrs.getSecond() + "\n") //TODO: check this case
+        .append("          | Some 3u2 -> x.bgp \n")
         .append("  in\n")
-        .append("  match b with\n");
-    sb.append("  | None -> {x with bgp=None}\n")
+        .append("  match b with\n")
+        .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
+        .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
         .append("    {x with bgp=policy x.selected b}\n\n");
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
@@ -301,7 +323,7 @@ public class NVCompiler {
             sb.append("   | ")
                 .append(edgeMap.get(edge))
                 .append(" ->\n")
-                .append("     let x = " + expPolicy + " x in\n");
+                .append("     let x = " + expPolicy + " e x in\n");
 
             // Do import policy now
             GraphEdge invEdge = _graph.getOtherEnd().get(edge);
@@ -317,62 +339,37 @@ public class NVCompiler {
     }
   }
 
+  /***** BGP Transfer Function for Single Prefix ****/
   private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
-    /*
-    sb.append(" let transferBgp edge x =\n")
-        .append("  let (prefix, prefixLen) = d in\n")
-        .append("  let b = match x.selected with\n")
-        .append("           | None -> None\n")
-        .append("           | Some 0 -> Some {bgpAd = 0; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("           | Some 1 -> Some {bgpAd = 1; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("           | Some 2 -> Some {bgpAd = 110; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("           | Some 3 -> x.bgp\n")
-        .append("  in\n")
-        .append("  match b with\n")
-        .append("  | None -> None\n")
-        .append("  | Some b -> (\n")
-        .append("   match edge with\n"); */
-
-    if (!singlePrefix) {
-      sb.append(" let transferBgpImpPol policy x =\n")
-          .append("  match x.bgp with\n")
-          .append("  | None -> {x with bgp=None}\n")
-          .append("  | Some b ->\n")
-          .append("    {x with bgp=policy x.selected b}\n\n");
-
-    sb.append(" let transferBgpPol policy x =\n")
-        .append("  let b = match x.selected with\n")
-        .append("          | None -> None\n")
-        .append(
-            "          | Some 0u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append(
-            "          | Some 1u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append(
-            "          | Some 2u2 -> Some {bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}\n")
-        .append("          | Some 3u2 -> x.bgp\n")
-        .append("  in\n")
-        .append("  match b with\n");
-          sb.append("  | None -> {x with bgp=None}\n")
-          .append("  | Some b ->\n")
-          .append("    {x with bgp=policy x.selected b}\n\n");
-    }
-
 
     sb.append(" let transferBgp e x0 =\n");
 
-    if (singlePrefix) {
+    // Get the origin of the route if model requires it.
+    if (_flags.doOrigin()) {
+      sb.append("  match e with | u~v ->");
+    }
+
+    // Redistribution attributes
+    Tuple<String, String> redistAttrs = redistributeIntoBgp("x");
+
       sb.append("  let (prefix, prefixLen) = d in\n")
         .append("  match x0.selected with\n")
           .append("  | None -> None\n")
           .append("  | Some prot -> \n")
-          .append(
-              "    (let b = if (prot = 3u2) then match x0.bgp with\n"
-                  + "                  | None -> ({bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}})\n"
-                  + "                  | Some b -> b\n"
-                  + "          else ({bgpAd = 20u8; lp = 100; aslen = 0; med = 80; comms = {}}) in\n");
-    }
 
-    sb.append("  match e with\n");
+
+          .append("  let b = match prot with\n")
+          .append("          | None -> None\n")
+          .append("          | Some 0u2 -> Some " + redistAttrs.getFirst() + "\n")
+          .append("          | Some 1u2 -> Some " + redistAttrs.getFirst() + "\n") // TODO: check this case
+          .append("          | Some 2u2 -> Some " + redistAttrs.getSecond() + "\n") //TODO: check this case
+          .append("          | Some 3u2 -> x.bgp \n")
+          .append("  in\n")
+          .append("  match b with\n")
+          .append("  | None -> None\n")
+          .append("  | Some b ->\n")
+          .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
+          .append("    match e with\n");
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
@@ -409,13 +406,13 @@ public class NVCompiler {
 
             String impPolicy = "x0"; // holds result of export
             /* Build NV string that corresponds to export tree */
-            TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config);
+            TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
             if (!singlePrefix) {
               List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
               int numberOfPolicies = expPolicies.size();
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
-                sb.append("     let x0 = map (transferBgpPol (fun prot b -> \n")
+                sb.append("     let x0 = map (transferBgpPol e (fun prot b -> \n")
                     .append("           " + expPolicies.get(0).getSecond() + ")) x0\n")
                     .append("     in\n");
               } else {
@@ -423,7 +420,7 @@ public class NVCompiler {
                   sb.append("     let x" + (idx + 1) + " =\n")
                       .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
                           + "                   " + expPolicies.get(idx).getFirst() + ")\n")
-                      .append("         (transferBgpPol (fun prot b ->\n")
+                      .append("         (transferBgpPol e (fun prot b ->\n")
                       .append("               " + expPolicies.get(idx).getSecond() + ")) x" + idx
                           + "\n")
                       .append("     in\n");
@@ -463,7 +460,7 @@ public class NVCompiler {
                 }
                 importTree.optimize();
 
-                TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null);
+                TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
                 if (!singlePrefix) {
                   List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
                   int numberOfPolicies = impPolicies.size();
@@ -529,32 +526,26 @@ public class NVCompiler {
         //        sb.append("None\n");
         // }
         if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
+          String o = _attrs.buildOspfAttribute("o.ad","o.weight + " + cost,
+              "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
+              areaId.toString(), "flipEdge edge", "o.ospfOrigin");
           ospfSet.add(edgeMap.get(edge));
           sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-          sb.append("Some {ospfAd = o.ad; weight = o.weight + ")
-              .append(cost)
-              .append("; areaType = if !(o.areaId = ")
-              .append(areaId)
-              .append(") then ospfInterArea else o.areaType; areaId = ")
-              .append(areaId)
-              .append(";}\n");
+          sb.append(o);
         }
       }
     }
     sb.append("   | _ -> None\n)\n\n");
   }
 
-
-    public String compile(boolean singlePrefix) {
-    StringBuilder sb = new StringBuilder();
-    String ospfType = "{ospfAd: int8; weight: int16; areaType:int2; areaId: int;}"; // (ad, cost, area-type, area-id)
+  // Type declarations
+  private void printAttributeType(boolean singlePrefix, StringBuilder sb) {
     String connType = "int8"; // ad
     String staticType = "int8"; // ad
-    String bgpType = "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];}"; // (ad, lp, cost, med, comms)
     // String bgpType = "option[(int,int,int,int)]"; // (ad, lp, cost, med, comms)
     String bestType = "int2"; // proto
-    sb.append("type ospfType = " + ospfType + "\n")
-        .append("type bgpType = " + bgpType + "\n")
+    sb.append("type ospfType = " + _attrs.buildOspfType() + "\n")
+        .append("type bgpType = " + _attrs.buildBgpType() + "\n")
         .append("type rib = {\n")
         .append("    connected:")
         .append(optionType(connType))
@@ -573,8 +564,74 @@ public class NVCompiler {
         .append("; }\n");
 
     // Either a single attribute or a map of attributes from prefix to route.
-    sb = sb.append("type attribute = " +
+    sb.append("type attribute = " +
         (singlePrefix ? "rib" : dictType("(int,int5)", "rib") )+ "\n\n");
+
+  }
+
+  /********** Merge Function ****************/
+  private void merge(boolean singlePrefix, StringBuilder sb)
+  {
+    sb.append("let min x y = x <u8 y\n\n");
+
+    sb.append("let pickOption f x y =\n")
+        .append("  match (x,y) with\n")
+        .append("  | (None, _) -> false")
+        .append("  | (_, None) -> true\n")
+        .append("  | (Some a, Some b) -> f a b\n\n");
+
+    sb.append("let betterOspf o1 o2 =\n")
+        .append("  if o1.areaType >u2 o2.areaType then true\n")
+        .append("  else if o2.areaType >u2 o1.areaType then false\n")
+        .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
+
+    sb.append("let betterBgp b1 b2 =\n")
+        .append("  if b1.lp > b2.lp then true\n")
+        .append("  else if b2.lp > b1.lp then false\n")
+        .append("  else if b1.aslen < b2.aslen then true\n")
+        .append("  else if b2.aslen < b1.aslen then false\n")
+        .append("  else if b1.med <= b2.med then true else false\n\n");
+
+    sb.append("let betterEqOption o1 o2 =\n")
+        .append("  match (o1,o2) with\n")
+        .append("  | (_, None) -> true\n")
+        .append("  | (None, _) -> false\n")
+        .append("  | (Some a, Some b) -> a <=u8 b\n\n");
+
+    sb.append("let best c s o b =\n")
+        .append("  match (c,s,o,b) with\n")
+        .append("  | (None,None,None,None) -> None\n")
+        .append("  | _ -> \n")
+        .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
+        .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
+        .append("      let (x,p1) = if betterEqOption c s then (c,0u2) else (s,1u2) in\n")
+        .append("      let (y,p2) = if betterEqOption o b then (o,2u2) else (b,3u2) in\n")
+        .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
+
+    sb.append("let mergeValues x y =\n")
+        .append("  let c = if (pickOption min x.connected y.connected) then x.connected else y.connected in\n")
+        .append("  let s = if (pickOption min x.static y.static) then x.static else y.static in\n")
+        .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
+        .append("  let b = if (pickOption betterBgp x.bgp y.bgp) then x.bgp else y.bgp in\n")
+        .append("  { connected = c;\n"
+            +   "    static = s;\n"
+            +   "    ospf = o;\n"
+            +   "    bgp = b;\n"
+            +   "    selected = best c s o b}\n\n");
+
+    /* Merge one attribute or combine over map */
+    if (singlePrefix) {
+      sb.append("let merge node x y = mergeValues x y\n\n");
+    } else {
+      sb.append("let merge node x y = combine mergeValues x y\n\n");
+    }
+
+  }
+
+    public String compile(boolean singlePrefix) {
+    StringBuilder sb = new StringBuilder();
+
+    printAttributeType(singlePrefix, sb);
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
@@ -633,65 +690,21 @@ public class NVCompiler {
       sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
-        .append("  | Some y -> x = y\n");
+        .append("  | Some y -> x = y\n\n");
     }
 
+    sb.append("let flipEdge e = \n")
+        .append("  match e with")
+        .append("  | a~b -> toEdge b a\n\n");
 
-    sb.append("let min x y = x <u8 y\n\n");
 
-    sb.append("let pickOption f x y =\n")
-        .append("  match (x,y) with\n")
-        .append("  | (None, _) -> false")
-        .append("  | (_, None) -> true\n")
-        .append("  | (Some a, Some b) -> f a b\n\n");
+    sb.append("let getSourceNode e = \n")
+        .append("  match e with")
+        .append("  | a~b -> a\n\n");
 
-    sb.append("let betterOspf o1 o2 =\n")
-        .append("  if o1.areaType >u2 o2.areaType then true\n")
-        .append("  else if o2.areaType >u2 o1.areaType then false\n")
-        .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
+    // Print out merge function
+    merge(singlePrefix, sb);
 
-    sb.append("let betterBgp b1 b2 =\n")
-        .append("  if b1.lp > b2.lp then true\n")
-        .append("  else if b2.lp > b1.lp then false\n")
-        .append("  else if b1.aslen < b2.aslen then true\n")
-        .append("  else if b2.aslen < b1.aslen then false\n")
-        .append("  else if b1.med >= b2.med then true else false\n\n");
-
-    sb.append("let betterEqOption o1 o2 =\n")
-        .append("  match (o1,o2) with\n")
-        .append("  | (_, None) -> true\n")
-        .append("  | (None, _) -> false\n")
-        .append("  | (Some a, Some b) -> a <=u8 b\n\n");
-
-    sb.append("let best c s o b =\n")
-        .append("  match (c,s,o,b) with\n")
-        .append("  | (None,None,None,None) -> None\n")
-        .append("  | _ -> \n")
-        .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
-        .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
-        .append("      let (x,p1) = if betterEqOption c s then (c,0u2) else (s,1u2) in\n")
-        .append("      let (y,p2) = if betterEqOption o b then (o,2u2) else (b,3u2) in\n")
-        .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
-
-    sb.append("let mergeValues x y =\n")
-        .append("  let c = if (pickOption min x.connected y.connected) then x.connected else y.connected in\n")
-        .append("  let s = if (pickOption min x.static y.static) then x.static else y.static in\n")
-        .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
-        .append("  let b = if (pickOption betterBgp x.bgp y.bgp) then x.bgp else y.bgp in\n")
-        .append("  { connected = c;\n"
-            +   "    static = s;\n"
-            +   "    ospf = o;\n"
-            +   "    bgp = b;\n"
-            +   "    selected = best c s o b}\n\n");
-
-    String defaultAttr = "(createDict ({connected=None; static=None; ospf=None; bgp=None; selected=None}))";
-    /* Merge one attribute or combine over map */
-    if (singlePrefix) {
-      sb.append("let merge node x y = mergeValues x y\n\n");
-    } else {
-      sb.append("let merge node x y = combine mergeValues x y\n\n");
-       // .append("                              (Some "+ defaultAttr +") None (Some "+ defaultAttr +") None\n");
-    }
 
     sb.append("let init node =\n");
 
@@ -751,7 +764,7 @@ public class NVCompiler {
         }
         Boolean b = bgpPrefixes.contains(prefix);
 
-        InitialAttribute a = new InitialAttribute(c, s, o, b);
+        InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
         Set<Prefix> prefixS = new HashSet<Prefix>();
         prefixS.add(prefix);
         if (attributePrefixMap.containsKey(a)) {
@@ -765,7 +778,7 @@ public class NVCompiler {
       /* This induces a large repetition of code but it's ok for now */
       if (singlePrefix) {
         for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
-          String initAttr = attrpre.getKey().compileAttr(singlePrefix);
+          String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
           Boolean first = true;
           sb.append("if ");
           for (Prefix pre : attrpre.getValue()) {
@@ -784,7 +797,7 @@ public class NVCompiler {
         sb.append("{connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
       } else {
         for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
-          String initAttr = attrpre.getKey().compileAttr(singlePrefix);
+          String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
           sb.append(initAttr);
           for (Prefix pre : attrpre.getValue()) {
             sb.append("    let d = d[(")
@@ -803,8 +816,11 @@ public class NVCompiler {
     else {
       sb.append("  | _ -> d\n\n");
     }
+
+    // OSPF transfer function
     ospfTrans(singlePrefix,sb,edgeMap);
 
+    // BGP transfer function
     if (singlePrefix) {
       bgpTrans(singlePrefix, sb, edgeMap);
     }

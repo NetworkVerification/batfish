@@ -40,11 +40,13 @@ public class TreeCompiler {
   private DecisionTree<Boolean> _tree;
   private Configuration _impConf;
   private Configuration _expConf;
+  private CompilerOptions _flags;
 
-  public TreeCompiler(DecisionTree<Boolean> _tree, Configuration _impConf, Configuration _expConf) {
+  public TreeCompiler(DecisionTree<Boolean> _tree, Configuration _impConf, Configuration _expConf, CompilerOptions flags) {
     this._tree = _tree;
     this._impConf = _impConf;
     this._expConf = _expConf;
+    this._flags = flags;
   }
 
   private String firstBitsEqual(String x, long y, int n) {
@@ -202,6 +204,8 @@ public class TreeCompiler {
             + ";"
             + "comms= "
             + p.getData().get_communities()
+            + (_flags.doOrigin() ? ";bgpOrigin= " + p.getData().get_bgpOrigin() : "")
+            + (_flags.doNextHop() ? ";bgpNextHop= " + p.getData().get_bgpNextHop() : "")
             + ";})" : "None");
   }
 
