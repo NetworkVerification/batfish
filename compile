@@ -1,2 +1,2 @@
 init-snapshot benchmarks/FatTrees/fattree4pol tr-smt-uscarrier
-get compile singlePrefix="false", doOrigin="true", doNextHop="true"
+get routes
