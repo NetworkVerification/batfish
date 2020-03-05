@@ -37,8 +37,7 @@ public class CompilerOptions {
   }
 
   public boolean doNextHop () {
-    return flags.contains(NVFlags.nexthop);
+    return flags.contains(NVFlags.nexthop) || flags.contains(NVFlags.dataplane);
   }
-
 
 }

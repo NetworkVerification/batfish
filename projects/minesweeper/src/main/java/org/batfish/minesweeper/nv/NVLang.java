@@ -2,9 +2,9 @@ package org.batfish.minesweeper.nv;
 
 import org.batfish.minesweeper.CommunityVar;
 
-public final class NVFunctions {
+public final class NVLang {
 
-  private NVFunctions () {}
+  private NVLang() {}
 
   public static String mkIf(String guard, String trueBranch, String falseBranch) {
     if (guard.equals("true")) {
@@ -48,6 +48,14 @@ public final class NVFunctions {
     return "(" + x + " && " + y + ")";
   }
 
+  public static String mkAnd(String[] xs) {
+    String acc = "true";
+    for (String x : xs) {
+      acc = mkAnd(acc, x);
+    }
+    return acc;
+  }
+
   public static String mkOr(String x, String y) {
     if (x.equals("false") || x.equals("(false)")) {
       return y;
@@ -61,6 +69,14 @@ public final class NVFunctions {
     return "(" + x + " || " + y + ")";
   }
 
+  public static String mkOr(String[] xs) {
+    String acc = "false";
+    for (String x : xs) {
+      acc = mkOr(acc, x);
+    }
+    return acc;
+  }
+
   public static String mkNot(String x) {
     if (x.equals("true")) {
       return "false";
@@ -68,7 +84,7 @@ public final class NVFunctions {
     if (x.equals("false")) {
       return "true";
     }
-    return "(!" + x + ")";
+    return "!(" + x + ")";
   }
 
   public static String mkBool(boolean b) {
@@ -79,7 +95,7 @@ public final class NVFunctions {
     return "" + i;
   }
 
-  public static String mkInt(int i, int sz) {
+  public static String mkInt(long i, int sz) {
     return "" + i + "u" + sz;
   }
 
@@ -109,6 +125,10 @@ public final class NVFunctions {
 
   public static String mkEq(String x, String y) {
     return "(" + x + " = " + y + ")";
+  }
+
+  public static String mkBitAnd(String x, String y) {
+    return "(" + x + " & " + y + ")";
   }
 
   public static long communityVarToNvValue(CommunityVar cvar) {
