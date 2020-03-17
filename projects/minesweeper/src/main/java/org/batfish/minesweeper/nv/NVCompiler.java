@@ -306,8 +306,9 @@ public class NVCompiler {
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies = computeEquivalentPolicies(sb);
 
-    sb.append(" let transferBgp e x =\n").append("  match e with\n");
+    sb.append(" let transferBgp e x =");
 
+    StringBuilder sbBgp = new StringBuilder();
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
@@ -318,7 +319,7 @@ public class NVCompiler {
               && !bgpSet.contains(_edgeMap.get(edge))) {
             bgpSet.add(_edgeMap.get(edge));
             String expPolicy = policies.getFirst().get(edge);
-            sb.append("   | ")
+            sbBgp.append("   | ")
                 .append(_edgeMap.get(edge))
                 .append(" ->\n")
                 .append("     let x = " + expPolicy + " e x in\n");
@@ -327,13 +328,21 @@ public class NVCompiler {
             GraphEdge invEdge = _graph.getOtherEnd().get(edge);
             String impPolicy = policies.getSecond().get(invEdge);
             if (impPolicy == null) {
-              sb.append("     x\n");
+              sbBgp.append("     x\n");
             } else {
-              sb.append("    " + impPolicy + " x\n");
+              sbBgp.append("    " + impPolicy + " x\n");
             }
           }
         }
       }
+    }
+
+    if (sbBgp.length() == 0 ) {
+      sb.append(" None\n");
+    }
+    else {
+      sb.append("\n  match e with\n");
+      sb.append(sbBgp);
     }
   }
 
@@ -511,7 +520,7 @@ public class NVCompiler {
         .append("   match o with\n")
         .append("   | None -> None\n")
         .append("   | Some o -> (\n")
-        .append("   match edge with\n");
+        .append("     match edge with\n");
 
     Set<String> ospfSet = new HashSet<>();
 
@@ -528,12 +537,12 @@ public class NVCompiler {
               "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
               areaId.toString(), "flipEdge edge", "o.ospfOrigin");
           ospfSet.add(_edgeMap.get(edge));
-          sb.append("   | ").append(_edgeMap.get(edge)).append(" -> ");
-          sb.append(o);
+          sb.append("     | ").append(_edgeMap.get(edge)).append(" -> ");
+          sb.append(o + "\n");
         }
       }
     }
-    sb.append("   | _ -> None\n)\n\n");
+    sb.append("     | _ -> None)\n\n");
   }
 
   // Type declarations
@@ -860,7 +869,7 @@ public class NVCompiler {
     String dataplane = "";
     if (_flags.doDataplane()) {
       Dataplane data = new Dataplane(_nodeAssignment, _edgeMap);
-      data.generateDataplane();
+      dataplane = data.generateDataplane();
     }
     return new Tuple<>(controlplane, dataplane);
   }

@@ -158,6 +158,9 @@ public class IpAccessListToNvExpr implements GenericAclLineMatchExprVisitor<Stri
     forbidHeaderSpaceField("srcOrDstProtocols", headerSpace.getSrcOrDstProtocols());
     forbidHeaderSpaceField("states", headerSpace.getStates());
 
+    System.out.println(toNvExpr(headerSpace.getDstIps(), _packet.getDstIp()));
+    System.out.println(toNvExpr(headerSpace.getSrcIps(), _packet.getSrcIp()));
+
     String expr =
         NVLang.mkAnd(new String[]
             {toNvExpr(headerSpace.getDstIps(), _packet.getDstIp()),

@@ -50,10 +50,17 @@ public final class NVLang {
 
   public static String mkAnd(String[] xs) {
     String acc = "true";
+    Boolean nonempty = false;
     for (String x : xs) {
-      acc = mkAnd(acc, x);
+      if (x != null) {
+        acc = mkAnd(acc, x);
+        nonempty = true;
+      }
     }
-    return acc;
+    if (nonempty) {
+      return acc;
+    }
+    else return null;
   }
 
   public static String mkOr(String x, String y) {
@@ -71,13 +78,23 @@ public final class NVLang {
 
   public static String mkOr(String[] xs) {
     String acc = "false";
+    Boolean nonempty = false;
     for (String x : xs) {
-      acc = mkOr(acc, x);
+      if (x != null) {
+        acc = mkOr(acc, x);
+        nonempty = true;
+      }
     }
+    if (nonempty) {
     return acc;
+    }
+    else return null;
   }
 
   public static String mkNot(String x) {
+    if (x == null) {
+      return null;
+    }
     if (x.equals("true")) {
       return "false";
     }
@@ -92,11 +109,13 @@ public final class NVLang {
   }
 
   public static String mkInt(int i) {
-    return "" + i;
+    int mask = ((int) ((Math.pow(2, 32)) -1));
+    return "" + (i & mask);
   }
 
   public static String mkInt(long i, int sz) {
-    return "" + i + "u" + sz;
+    long mask = ((long) ((Math.pow(2L, sz)) -1L));
+    return "" + (i & mask) + "u" + sz;
   }
 
   public static String mkGe(String x, String y) {
@@ -124,11 +143,21 @@ public final class NVLang {
   }
 
   public static String mkEq(String x, String y) {
-    return "(" + x + " = " + y + ")";
+    if (x.equals(y)) {
+      return "true";
+    }
+    else {
+      return "(" + x + " = " + y + ")";
+    }
   }
 
   public static String mkBitAnd(String x, String y) {
-    return "(" + x + " & " + y + ")";
+    if (x.equals("0") || x.equals("0u32") || y.equals("0") || y.equals("0u32")) {
+      return "0";
+    }
+    else {
+      return "(" + x + " & " + y + ")";
+    }
   }
 
   public static long communityVarToNvValue(CommunityVar cvar) {

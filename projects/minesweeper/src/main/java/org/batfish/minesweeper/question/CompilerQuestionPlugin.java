@@ -39,7 +39,7 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
       if (((CompileQuestion) _question).getOrigin()) {
         flags.setFlag(NVFlags.origin);
       }
-      if (((CompileQuestion) _question).getDataPlane()) {
+      if (((CompileQuestion) _question).getData()) {
         flags.setFlag(NVFlags.dataplane);
       }
       NVCompiler c = new NVCompiler(_batfish, flags);
@@ -69,12 +69,15 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_NEXTHOP = "doNextHop";
     private static final String PROP_ORIGIN = "doOrigin";
+    private static final String PROP_DATA = "doData";
 
     private static final String PROP_FILE = "file";
 
     private boolean _nextHop = false;
 
     private boolean _origin = false;
+
+    private boolean _data = false;
 
     private String _file = "";
 
@@ -88,6 +91,14 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
       return _origin;
     }
 
+    @JsonProperty(PROP_DATA)
+    public boolean getData() { return _data; }
+
+    @JsonProperty(PROP_FILE)
+    public String getFile() {
+      return _file;
+    }
+
     @JsonProperty(PROP_NEXTHOP)
     public void setNextHop(boolean x) {
       this._nextHop = x;
@@ -98,10 +109,9 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
       this._origin = x;
     }
 
-    @JsonProperty(PROP_FILE)
-    public String getFile() {
-      return _file;
-    }
+    @JsonProperty(PROP_DATA)
+    public void setData(boolean x) { this._data = x; }
+
 
     @JsonProperty(PROP_FILE)
     public void setFile(String x) {

@@ -42,7 +42,7 @@ public class Packet {
     this._srcIp = ipProtocol;
   }
 
-  
+
   public String getPacket() {
     return packet;
   }

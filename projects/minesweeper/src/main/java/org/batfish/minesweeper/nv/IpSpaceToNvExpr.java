@@ -55,7 +55,10 @@ public class IpSpaceToNvExpr implements GenericIpSpaceVisitor<String> {
   }
 
   private String toNvExpr(IpWildcard ipWildcard) {
+    System.out.println("ip: " + ipWildcard.getIp().asLong() );
     String ip = NVLang.mkInt(ipWildcard.getIp().asLong(), 32);
+    System.out.println("wildcardmask: " + ipWildcard.getWildcardMask());
+    System.out.println("~wildcardmask: " + (~ipWildcard.getWildcardMask()));
     String mask = NVLang.mkInt(~ipWildcard.getWildcardMask(), 32);
     return NVLang.mkEq(NVLang.mkBitAnd(_var, mask), NVLang.mkBitAnd(ip, mask));
   }

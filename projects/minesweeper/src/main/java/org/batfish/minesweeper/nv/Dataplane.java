@@ -23,38 +23,48 @@ public class Dataplane {
   /** Type of messages exchanged by the dataplane **/
   private String getAttributeType() {
     String packet = "type packet = {srcIp: int; dstIp: int;}";
-    return "type packets = set[packet]";
+    return packet + "\n" + "type packets = set[packet]";
   }
 
   private void generateLPM(StringBuilder sb) {
 
     // Helper function matching a route's forwarding edge and an edge
-    sb.append("let matchFwd route edge =\n")
+    sb.append("let getFwd route =\n")
         .append("  match route.selected with\n")
-        .append("  | None -> false\n")
-        .append("  | Some 0 -> false\n")
-        .append("  | Some 1 -> false\n")
+        .append("  | None -> None\n")
+        .append("  | Some 0 -> Some None\n")
+        .append("  | Some 1 -> Some None\n")
         .append("  | Some 2 -> (match route.ospf with\n")
-        .append("               | None -> false\n")
-        .append("               | Some o -> o.ospfNextHop = edge)\n")
+        .append("               | None -> None\n")
+        .append("               | Some o -> Some o.ospfNextHop)\n")
         .append("  | Some 3 -> (match route.bgp with\n")
-        .append("               | None -> false\n")
-        .append("               | Some b -> b.bgpNextHop = edge)\n");
+        .append("               | None -> None\n")
+        .append("               | Some b -> Some b.bgpNextHop)\n");
 
 
     sb.append("\nlet lpm rib edge p =\n")
         .append("  let dst = p.dstIp in\n");
 
-    for (int i = 32; i == 0; i--) {
-        sb.append("  if matchFwd (rib[(" + NVLang.mkBitAnd("dst", i + "") + "," + i +")]) then true\n")
-          .append("  else ");
-          }
-    sb.append("false\n\n");
+    for (int i = 32; i >= 0; i--) {
+      sb.append("  (match (getFwd (rib[(" + NVLang.mkBitAnd("dst", i + "") + "," + i +")]) with\n")
+        .append("  | Some None -> false\n")
+        .append("  | Some (Some nexthop) -> edge = nexthop\n")
+        .append("  | None -> ");
+    }
+    sb.append("false");
+    for (int i = 0; i <= 32; i++) {
+      sb.append(")");
+    }
+    sb.append("\n\n");
   }
+
 
   /** Transfer function for the dataplane **/
   private String transferData() {
     StringBuilder sb = new StringBuilder();
+
+    // Generate the LPM function
+    generateLPM(sb);
 
     sb.append("\nlet transferData rib edge ps = \n")
         .append("  match edge with\n");
