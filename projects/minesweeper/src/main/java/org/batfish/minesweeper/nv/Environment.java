@@ -15,6 +15,10 @@ public class Environment implements IDeepCopy<Environment> {
 
   private String _communities;
 
+  private String _bgpOrigin;
+
+  private String _bgpNextHop;
+
   private String _protocol;
 
   private String _prefixLength;
@@ -29,6 +33,8 @@ public class Environment implements IDeepCopy<Environment> {
     this._cost = "b.aslen";
     this._med = "b.med";
     this._communities = "b.comms";
+    this._bgpOrigin = "b.bgpOrigin";
+    this._bgpNextHop = "b.bgpNextHop";
     this._protocol = "prot";
     this._prefixLength = "prefixLen";
     this._prefixValue = "prefix";
@@ -41,6 +47,8 @@ public class Environment implements IDeepCopy<Environment> {
       String cost,
       String med,
       String communities,
+      String bgpOrigin,
+      String bgpNextHop,
       String protocol,
       String prefixLength,
       String prefixValue,
@@ -50,6 +58,8 @@ public class Environment implements IDeepCopy<Environment> {
     this._cost = cost;
     this._med = med;
     this._communities = communities;
+    this._bgpOrigin = bgpOrigin;
+    this._bgpNextHop = bgpNextHop;
     this._protocol = protocol;
     this._prefixLength = prefixLength;
     this._prefixValue = prefixValue;
@@ -112,6 +122,14 @@ public class Environment implements IDeepCopy<Environment> {
     this._communities = communities;
   }
 
+  public String get_bgpOrigin() { return _bgpOrigin; }
+
+  public void set_bgpOrigin(String bgpOrigin) { _bgpOrigin = bgpOrigin;}
+
+  public String get_bgpNextHop() { return _bgpNextHop; }
+
+  public void set_bgpNextHop(String bgpNextHop) { _bgpNextHop = bgpNextHop;}
+
   public String get_protocol() {
     return _protocol;
   }
@@ -132,6 +150,8 @@ public class Environment implements IDeepCopy<Environment> {
     env.set_cost(this.get_cost());
     env.set_communities(this.get_communities());
     env.set_med(this.get_med());
+    env.set_bgpNextHop(this.get_bgpNextHop());
+    env.set_bgpOrigin(this.get_bgpOrigin());
     env.set_protocol(this.get_protocol());
     env.set_prefixLength(this.get_prefixLength());
     env.set_prefixValue(this.get_prefixValue());
