@@ -101,15 +101,19 @@ public class NVCompiler {
   private Map<GraphEdge, String> _edgeMap;
   private Map<String, Integer> _nodeAssignment;
 
+  // Filename of the main network file, i.e. most likely the one describing the control plane.
+  private String _filename;
+
   private CompilerOptions _flags;
   private Attributes _attrs;
 
-  public NVCompiler(IBatfish batfish, CompilerOptions flags) {
+  public NVCompiler(IBatfish batfish, String filename, CompilerOptions flags) {
     _graph = new Graph(batfish);
     _flags = flags;
     _attrs = new Attributes(flags);
     _edgeMap = new HashMap<>();
     _nodeAssignment = new HashMap<>();
+    _filename = filename;
   }
 
   private String optionType(String typ) {
@@ -300,9 +304,13 @@ public class NVCompiler {
         .append("  in\n")
         .append("  match b with\n")
         .append("  | None -> {x with bgp=None}\n")
-        .append("  | Some b ->\n")
-        .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
-        .append("    {x with bgp=policy x.selected b}\n\n");
+        .append("  | Some b ->\n");
+
+    if (_flags.doNextHop()) {
+      sb.append("    let b = {b with bgpNextHop = flipEdge e} in\n");
+    }
+
+    sb.append("    {x with bgp=policy x.selected b}\n\n");
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies = computeEquivalentPolicies(sb);
 
@@ -338,7 +346,7 @@ public class NVCompiler {
     }
 
     if (sbBgp.length() == 0 ) {
-      sb.append(" None\n");
+      sb.append(" map (fun v -> {v with bgp = None}) x\n");
     }
     else {
       sb.append("\n  match e with\n");
@@ -362,21 +370,23 @@ public class NVCompiler {
       sb.append("  let (prefix, prefixLen) = d in\n")
         .append("  match x0.selected with\n")
           .append("  | None -> None\n")
-          .append("  | Some prot -> \n")
+          .append("  | Some prot ->  \n")
 
 
           .append("  let b = match prot with\n")
-          .append("          | None -> None\n")
-          .append("          | Some 0u2 -> Some " + redistAttrs.getFirst() + "\n")
-          .append("          | Some 1u2 -> Some " + redistAttrs.getFirst() + "\n") // TODO: check this case
-          .append("          | Some 2u2 -> Some " + redistAttrs.getSecond() + "\n") //TODO: check this case
-          .append("          | Some 3u2 -> x.bgp \n")
+          .append("          | 0u2 -> " + redistAttrs.getFirst() + "\n")
+          .append("          | 1u2 -> " + redistAttrs.getFirst() + "\n") // TODO: check this case
+          .append("          | 2u2 -> " + redistAttrs.getSecond() + "\n") //TODO: check this case
+          .append("          | 3u2 -> x0.bgp \n")
           .append("  in\n")
-          .append("  match b with\n")
+          .append("  (match b with\n")
           .append("  | None -> None\n")
-          .append("  | Some b ->\n")
-          .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
-          .append("    match e with\n");
+          .append("  | Some b ->\n");
+
+    if (_flags.doNextHop()) {
+      sb.append("    let b = {b with bgpNextHop = flipEdge e} in\n");
+    }
+    sb.append("    match e with\n");
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
@@ -533,7 +543,7 @@ public class NVCompiler {
         //        sb.append("None\n");
         // }
         if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(_edgeMap.get(edge))) {
-          String o = _attrs.buildOspfAttribute("o.ad","o.weight + " + cost,
+          String o = _attrs.buildOspfAttribute("o.ad","o.weight +u16 " + cost +"u16",
               "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
               areaId.toString(), "flipEdge edge", "o.ospfOrigin");
           ospfSet.add(_edgeMap.get(edge));
@@ -863,15 +873,22 @@ public class NVCompiler {
     return sb.toString();
   }
 
+
   /* Putting everything together */
-  public Tuple<String, String> compile(boolean singlePrefix){
+  public CompilerResult compile(boolean singlePrefix){
     String controlplane = compileControlPlane(singlePrefix);
     String dataplane = "";
     if (_flags.doDataplane()) {
       Dataplane data = new Dataplane(_nodeAssignment, _edgeMap);
       dataplane = data.generateDataplane();
     }
-    return new Tuple<>(controlplane, dataplane);
+    String allFaults = "";
+    if (_flags.doNodeFaults()) {
+      AllFaultsAnalysis faults = new AllFaultsAnalysis(_filename, _nodeAssignment, _edgeMap);
+      allFaults = faults.compileAllFaults(true, singlePrefix);
+
+    }
+    return new CompilerResult(controlplane, dataplane, allFaults);
   }
 
 }

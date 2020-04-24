@@ -1,2 +1,2 @@
-init-snapshot tests/java-smt/networks/acl1 tr-acl1
-get compile doData="true", file="acl1", singlePrefix="false"
+init-snapshot benchmarks/FatTrees/sp8 tr-fat8
+get compile doData="false", file="sp8Single", doNodeFaults="true", singlePrefix="true"

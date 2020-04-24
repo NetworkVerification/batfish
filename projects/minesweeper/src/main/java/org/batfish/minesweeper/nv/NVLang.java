@@ -160,6 +160,11 @@ public final class NVLang {
     }
   }
 
+  public static String mkFilter(String pred, String x) {
+    return "(filter " + pred + " " + x + ")";
+  }
+
+
   public static long communityVarToNvValue(CommunityVar cvar) {
     Long l = cvar.getLiteralValue().asBigInt().longValue();
     if (l == null) {
