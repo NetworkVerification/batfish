@@ -21,6 +21,7 @@ import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
 import org.batfish.datamodel.routing_policy.expr.BooleanExprs;
 import org.batfish.datamodel.routing_policy.expr.CallExpr;
 import org.batfish.datamodel.routing_policy.expr.Conjunction;
+import org.batfish.datamodel.routing_policy.expr.ConjunctionChain;
 import org.batfish.datamodel.routing_policy.expr.DecrementLocalPreference;
 import org.batfish.datamodel.routing_policy.expr.DecrementMetric;
 import org.batfish.datamodel.routing_policy.expr.Disjunction;
@@ -138,8 +139,8 @@ class TransferFunctionBuilder {
       }
       return head;
     }
-/*
-    if (expr instanceof ConjunctionChain) {
+
+   /* if (expr instanceof ConjunctionChain) {
       pCur.debug("ConjunctionChain");
       ConjunctionChain d = (ConjunctionChain) expr;
       List<BooleanExpr> conjuncts = new ArrayList<>(d.getSubroutines());
@@ -148,24 +149,24 @@ class TransferFunctionBuilder {
         conjuncts.add(be);
       }
       if (conjuncts.isEmpty()) {
-        return fromExpr("true");
+        return new DecisionTree<>(tleaf);
       } else {
-        TransferResult<String, String> result = new TransferResult<>();
-        String acc = "(false";
-        for (int i = conjuncts.size() - 1; i >= 0; i--) {
+ //       TransferResult<String, String> result = new TransferResult<>();
+        DecisionTree<Boolean> head = exprToTree(conjuncts.get(conjuncts.size() -1), pCur, tleaf, fleaf);
+        for (int i = conjuncts.size() - 2; i >= 0; i--) {
           BooleanExpr conjunct = conjuncts.get(i);
           TransferParam<Environment> param =
               pCur.setDefaultPolicy(null).setChainContext(TransferParam.ChainContext.CONJUNCTION);
-          TransferResult<String, String> r = compute(conjunct, param);
-          result = result.addChangedVariables(r);
+          DecisionTree<Boolean> r = continuationExpr(head, param, tleaf, fleaf, conjunct, true);
+
           acc = mkIf(r.getFallthroughValue(), acc, r.getReturnValue());
         }
         acc = acc + ")";
         pCur.debug("ConjunctionChain Result: " + acc);
         return result.setReturnValue(acc);
       }
-    }
-
+    }*/
+/*
     if (expr instanceof DisjunctionChain) {
       pCur.debug("DisjunctionChain");
       DisjunctionChain d = (DisjunctionChain) expr;
@@ -867,6 +868,7 @@ class TransferFunctionBuilder {
     }
   }
 
+  //Kick off the whole computation
   public DecisionTree<Boolean> compute() {
     Environment env = new Environment();
     TransferParam<Environment> p = new TransferParam<>(env, false);
@@ -878,23 +880,31 @@ class TransferFunctionBuilder {
     return t;
   }
 
+  // Extend an existing decision tree (t), under the environment pCur, with another decision tree
+  // computed from the BooleanExpr be. tleaf,fleaf are the true/false leafs of t and lr denotes which
+  // leaf should the extension happen at (for instance lr = true means that true leaf is extended).
   private DecisionTree<Boolean> continuationExpr(DecisionTree<Boolean> t, TransferParam<Environment> pCur,
       Node<Boolean> tleaf, Node<Boolean> fleaf,
       BooleanExpr be, boolean lr) {
+
     List<Tuple<DecisionTree<Boolean>, Node<Boolean>>> todo = new ArrayList<>();
 
+    // For every leaf in the decision tree
     for (Node<Boolean> leaf : t.getLeafs()) {
+      // That matches the value of lr
       if (leaf.getData() == lr) {
         TransferParam<Environment> newEnv = leaf.getEnv();
         Node<Boolean> newTleaf = tleaf;
         Node<Boolean> newFleaf = fleaf;
+        // If the environment has changed then mutate it.
         if (!newEnv.equals(pCur)) {
            newTleaf = new Node<>(true, newEnv, _isExport);
            newFleaf = new Node<>(false, newEnv, _isExport);
-          newEnv = newEnv.deepCopy();
+           newEnv = newEnv.deepCopy();
         }
 
         DecisionTree<Boolean> res = exprToTree(be, newEnv, newTleaf, newFleaf);
+        // keep track of which leafs should be updated.
         todo.add(new Tuple<>(res, leaf));
       }
     }

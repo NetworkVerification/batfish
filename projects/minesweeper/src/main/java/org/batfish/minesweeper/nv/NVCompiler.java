@@ -22,6 +22,7 @@ import org.batfish.datamodel.routing_policy.statement.Statement;
 import org.batfish.minesweeper.Graph;
 import org.batfish.minesweeper.GraphEdge;
 import org.batfish.minesweeper.Protocol;
+import org.batfish.minesweeper.collections.Table2;
 import org.batfish.minesweeper.utils.Tuple;
 
 class InitialAttribute {
@@ -269,36 +270,54 @@ public class NVCompiler {
     }
 
 
-    private Tuple<String, String> redistributeIntoBgp(String x) {
-      // Default bgp attribute for connected/static
-      String b = _attrs.buildBgpAttribute("100","20u8","0","80",
-          "{}","None", "getSourceNode e");
+    private Map<Protocol, String> redistributeIntoBgp(String x,
+        Table2<String, Protocol, Set<Protocol>> redistributionTable, String router) {
+      Set<Protocol> protocols = redistributionTable.get(router, Protocol.BGP);
+      Map<Protocol, String> redistributedRoutes = new HashMap<>();
+
+      if (protocols.contains(Protocol.CONNECTED)) {
+        // Default bgp attribute for connected
+        redistributedRoutes.put(Protocol.CONNECTED, _attrs.buildBgpAttribute("100","20u8","0","80",
+            "{}","None", "getSourceNode e"));
+      }
+      else { redistributedRoutes.put(Protocol.CONNECTED, "None"); }
+
+      //TODO: Nexthop and origin might need to be different.
+      if (protocols.contains(Protocol.STATIC)) {
+        redistributedRoutes.put(Protocol.STATIC, _attrs.buildBgpAttribute("100","20u8","0","80",
+            "{}","None", "getSourceNode e"));
+      }
+      else { redistributedRoutes.put(Protocol.STATIC, "None"); }
+
       // For ospf
-      String bospf = _attrs.buildBgpAttribute("100","20u8","0","80",
-          "{}","(match "+x+".ospf with | None -> None | Some o -> o.ospfNextHop)",
-          "(match "+x+".ospf with | None -> getSourceNode e | Some o -> o.ospfOrigin)");
-      return new Tuple<>(b,bospf);
+      //TODO: I think the med here needs to be set to the OSPF weight, but we can't cast it yet.
+      //TODO: Do we need to check whether we redistribute E1 and E2? We probably need to.
+      if (protocols.contains(Protocol.OSPF)) {
+        String bospf = "(match " + x + ".ospf with\n"
+            + " | None -> None\n" + " | Some o -> "
+            + _attrs.buildBgpAttribute("100",
+            "20u8",
+            "0",
+            "80",
+            "{}",
+            "o.ospfNextHop",
+            "o.ospfOrigin") +")";
+        redistributedRoutes.put(Protocol.OSPF, bospf);
+      }
+      else {redistributedRoutes.put(Protocol.OSPF, "None");}
+      return redistributedRoutes;
     }
 
   // Just to make my life easier making it separately now, but do it for single prefix too.
-  private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap) {
-    sb.append(" let transferBgpImpPol policy x =\n")
+  private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
+      Table2<String, Protocol, Set<Protocol>> redistributionTable) {
+    sb.append("let transferBgpImpPol policy x =\n")
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
         .append("    {x with bgp=policy x.selected b}\n\n");
 
-    // Redistribution attributes
-    Tuple<String, String> redistAttrs = redistributeIntoBgp("x");
-
-    sb.append(" let transferBgpPol e policy x =\n")
-        .append("  let b = match x.selected with\n")
-        .append("          | None -> None\n")
-        .append("          | Some 0u2 -> " + redistAttrs.getFirst() + "\n")
-        .append("          | Some 1u2 -> " + redistAttrs.getFirst() + "\n") // TODO: check this case
-        .append("          | Some 2u2 -> " + redistAttrs.getSecond() + "\n") //TODO: check this case
-        .append("          | Some 3u2 -> x.bgp \n")
-        .append("  in\n")
+    sb.append("let transferBgpPol e policy b x =\n")
         .append("  match b with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
@@ -314,6 +333,8 @@ public class NVCompiler {
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
+      // Compute redistribution of other protocols into BGP for this router
+      Map<Protocol, String> redistAttrs = redistributeIntoBgp("x", redistributionTable, router);
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge)
@@ -323,6 +344,15 @@ public class NVCompiler {
             sb.append("   | ")
                 .append(edgeMap.get(edge))
                 .append(" ->\n")
+                .append("     (*handling redistribution into BGP*)\n")
+                .append("     let b = \n")
+                .append("       match x.selected with\n")
+                .append("       | None -> None\n")
+                .append("       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
+                .append("       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
+                .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
+                .append("       | Some 3u2 -> x.bgp \n")
+                .append("     in\n")
                 .append("     let x = " + expPolicy + " e x in\n");
 
             // Do import policy now
@@ -340,41 +370,26 @@ public class NVCompiler {
   }
 
   /***** BGP Transfer Function for Single Prefix ****/
-  private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+  private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap,
+      Table2<String, Protocol, Set<Protocol>> redistributionTable) {
 
     sb.append(" let transferBgp e x0 =\n");
 
     // Get the origin of the route if model requires it.
-    if (_flags.doOrigin()) {
+    /*if (_flags.doOrigin()) {
       sb.append("  match e with | u~v ->");
-    }
-
-    // Redistribution attributes
-    Tuple<String, String> redistAttrs = redistributeIntoBgp("x");
+    }*/
 
       sb.append("  let (prefix, prefixLen) = d in\n")
-        .append("  match x0.selected with\n")
-          .append("  | None -> None\n")
-          .append("  | Some prot -> \n")
 
-
-          .append("  let b = match prot with\n")
-          .append("          | None -> None\n")
-          .append("          | Some 0u2 -> Some " + redistAttrs.getFirst() + "\n")
-          .append("          | Some 1u2 -> Some " + redistAttrs.getFirst() + "\n") // TODO: check this case
-          .append("          | Some 2u2 -> Some " + redistAttrs.getSecond() + "\n") //TODO: check this case
-          .append("          | Some 3u2 -> x.bgp \n")
-          .append("  in\n")
-          .append("  match b with\n")
-          .append("  | None -> None\n")
-          .append("  | Some b ->\n")
-          .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
-          .append("    match e with\n");
+          .append(" match e with\n");
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
+      // Compute redistribution of other protocols into BGP for this router
+      Map<Protocol, String> redistAttrs = redistributeIntoBgp("x0", redistributionTable, router);
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           Interface iface = edge.getStart();
@@ -388,7 +403,20 @@ public class NVCompiler {
               statements = Collections.emptyList();
             }
 
-            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n");
+            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n")
+                .append("     (*handling redistribution into BGP*)\n")
+                .append("     let b = \n")
+                .append("       match x0.selected with\n")
+                .append("       | None -> None\n")
+                .append("       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
+                .append("       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
+                .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
+                .append("       | Some 3u2 -> x0.bgp \n")
+                .append("     in\n")
+                .append("     match b with\n")
+                .append("     | None -> None\n")
+                .append("     | Some b ->\n")
+                .append("      let b = {b with bgpNextHop = flipEdge e} in\n");
 
             // Build the decision tree for the export policy
             TransferFunctionBuilder exportTransBuilder = new TransferFunctionBuilder(config,
@@ -403,37 +431,15 @@ public class NVCompiler {
             }
             // Apply some basic optimizations
             exportTree.optimize();
-
-            String impPolicy = "x0"; // holds result of export
             /* Build NV string that corresponds to export tree */
             TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
-            if (!singlePrefix) {
-              List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
-              int numberOfPolicies = expPolicies.size();
-              // If there is only one policy there is no branching on prefixes just map the policy.
-              if (numberOfPolicies == 1) {
-                sb.append("     let x0 = map (transferBgpPol e (fun prot b -> \n")
-                    .append("           " + expPolicies.get(0).getSecond() + ")) x0\n")
-                    .append("     in\n");
-              } else {
-                for (int idx = 0; idx < numberOfPolicies; idx++) {
-                  sb.append("     let x" + (idx + 1) + " =\n")
-                      .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
-                          + "                   " + expPolicies.get(idx).getFirst() + ")\n")
-                      .append("         (transferBgpPol e (fun prot b ->\n")
-                      .append("               " + expPolicies.get(idx).getSecond() + ")) x" + idx
-                          + "\n")
-                      .append("     in\n");
-                }
-                impPolicy = "x" + numberOfPolicies;
-              }
-            } else {
-              impPolicy = "b";
-              String expPolicy = exportTreeCompiler.toNvString();
-              sb.append("     let b = \n")
-                  .append("           " + expPolicy + "\n")
-                  .append("     in\n");
-            }
+
+            String impPolicy = "b";
+            String expPolicy = exportTreeCompiler.toNvString();
+            sb.append("     let b = \n")
+              .append("           " + expPolicy + "\n")
+                .append("     in\n");
+
             // Do import policy
             List<Statement> importStatements;
 
@@ -455,43 +461,14 @@ public class NVCompiler {
                     invEdge,
                     false);
                 DecisionTree<Boolean> importTree = importTransBuilder.compute();
-                if (!singlePrefix) {
-                  importTransBuilder.normalize(importTree);
-                }
                 importTree.optimize();
 
                 TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
-                if (!singlePrefix) {
-                  List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
-                  int numberOfPolicies = impPolicies.size();
-                  // If there is only one policy there is no branching on prefixes just map the policy.
-                  if (numberOfPolicies == 1) {
-                    sb.append("     map (transferBgpImpPol (fun prot b -> \n")
-                        .append("           " + impPolicies.get(0).getSecond() + ")) " + impPolicy + "\n");
-                  } else {
-                    for (int idx = 0; idx < numberOfPolicies; idx++) {
-                      sb.append("     let x" + (idx + 1) + " =\n")
-                          .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
-                              + "                   " + impPolicies.get(idx).getFirst() + ")\n")
-                          .append("         (transferBgpImpPol (fun prot b ->\n");
-                      if (idx == 0) {
-                        sb.append("               " + impPolicies.get(idx).getSecond() + ")) " + impPolicy
-                            + "\n");
-                      } else {
-                        sb.append(
-                            "               " + impPolicies.get(idx).getSecond() + ")) x" + idx + "\n");
-                      }
-                      sb.append("     in\n");
-                    }
-                    sb.append("     x" + numberOfPolicies + "\n\n");
-                  }
-                } else {
-                  impPolicy = importTreeCompiler.toNvString();
-                  sb.append("         (match b with\n")
-                      .append("         | None -> None\n")
-                      .append("         | Some b ->\n")
-                      .append("           " + impPolicy + ")\n");
-                }
+                impPolicy = importTreeCompiler.toNvString();
+                sb.append("         (match b with\n")
+                    .append("         | None -> None\n")
+                    .append("         | Some b ->\n")
+                    .append("           " + impPolicy + ")\n");
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
@@ -581,8 +558,8 @@ public class NVCompiler {
         .append("  | (Some a, Some b) -> f a b\n\n");
 
     sb.append("let betterOspf o1 o2 =\n")
-        .append("  if o1.areaType >u2 o2.areaType then true\n")
-        .append("  else if o2.areaType >u2 o1.areaType then false\n")
+        .append("  if o1.areaType <u2 o2.areaType then true\n")
+        .append("  else if o2.areaType <u2 o1.areaType then false\n")
         .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
 
     sb.append("let betterBgp b1 b2 =\n")
@@ -817,15 +794,18 @@ public class NVCompiler {
       sb.append("  | _ -> d\n\n");
     }
 
+
+    Redistribution redistributionTable = new Redistribution(_graph);
+
     // OSPF transfer function
     ospfTrans(singlePrefix,sb,edgeMap);
 
     // BGP transfer function
     if (singlePrefix) {
-      bgpTrans(singlePrefix, sb, edgeMap);
+      bgpTrans(singlePrefix, sb, edgeMap, redistributionTable.getRedistributedProtocols());
     }
     else {
-      bgpTransAllPrefixes(sb, edgeMap);
+      bgpTransAllPrefixes(sb, edgeMap, redistributionTable.getRedistributedProtocols());
     }
 
     if (singlePrefix) {

@@ -235,8 +235,15 @@ public class Graph {
   @Nullable
   public static RoutingPolicy findCommonRoutingPolicy(Configuration conf, Protocol proto) {
     if (proto.isOspf()) {
+      OspfProcess ospf = getFirstOspfProcess(conf.getDefaultVrf());
+      if (ospf == null)
+        return null;
+
       String exp = getFirstOspfProcess(conf.getDefaultVrf()).getExportPolicy();
-      return conf.getRoutingPolicies().get(exp);
+      if (exp != null) {
+        return conf.getRoutingPolicies().get(exp);
+      }
+      else return null;
     }
     if (proto.isBgp()) {
       for (Map.Entry<String, RoutingPolicy> entry : conf.getRoutingPolicies().entrySet()) {
