@@ -429,9 +429,9 @@ public class NVCompiler {
                 .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
                 .append("       | Some 3u2 -> x0.bgp \n")
                 .append("     in\n")
-                .append("     match b with\n")
-                .append("     | None -> None\n")
-                .append("     | Some b ->\n");
+                .append("     (match b with\n")
+                .append("      | None -> None\n")
+                .append("      | Some b ->\n");
             if (_flags.doNextHop()) {
               sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
             }
@@ -490,9 +490,9 @@ public class NVCompiler {
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
-              else { sb.append("      " + impPolicy + "\n\n"); }
+              else { sb.append("      " + impPolicy + ")\n"); }
             }
-            else { sb.append("      " + impPolicy + "\n\n"); }
+            else { sb.append("      " + impPolicy + ")\n"); }
           }
         }
       }
