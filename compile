@@ -1,2 +1,2 @@
-init-snapshot benchmarks/FatTrees/fattree4pol tr-smt-uscarrier
-get compile singlePrefix="false", doOrigin="true", doNextHop="true"
+init-snapshot benchmarks/FatTrees/sp8 tr-fat8
+get compile doData="false", file="sp8Single", doNodeFaults="true", singlePrefix="true"

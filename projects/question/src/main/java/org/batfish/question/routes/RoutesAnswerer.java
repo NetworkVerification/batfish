@@ -72,6 +72,7 @@ public class RoutesAnswerer extends Answerer {
 
   @Override
   public AnswerElement answer() {
+    long start = System.currentTimeMillis();
     RoutesQuestion question = (RoutesQuestion) _question;
     TableAnswerElement answer = new TableAnswerElement(getTableMetadata(question.getRib()));
 
@@ -108,6 +109,8 @@ public class RoutesAnswerer extends Answerer {
     }
 
     answer.postProcessAnswer(_question, rows);
+    long time = System.currentTimeMillis() - start;
+    System.out.println("\n\nRoute Computation took:" + time + "ms\n");
     return answer;
   }
 

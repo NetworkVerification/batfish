@@ -8,7 +8,8 @@ public class CompilerOptions {
   public enum NVFlags {
     dataplane,
     nexthop,
-    origin
+    origin,
+    nodeFaults
   }
 
   private Set<NVFlags> flags;
@@ -37,8 +38,11 @@ public class CompilerOptions {
   }
 
   public boolean doNextHop () {
-    return flags.contains(NVFlags.nexthop);
+    return flags.contains(NVFlags.nexthop) || flags.contains(NVFlags.dataplane);
   }
 
+  public boolean doNodeFaults () {
+    return flags.contains(NVFlags.nodeFaults);
+  }
 
 }

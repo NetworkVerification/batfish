@@ -2,8 +2,8 @@ package org.batfish.minesweeper.nv;
 
 import static org.batfish.minesweeper.CommunityVarCollector.collectCommunityVars;
 import static org.batfish.minesweeper.bdd.CommunityVarConverter.toCommunityVar;
-import static org.batfish.minesweeper.nv.NVFunctions.mkInt;
-import static org.batfish.minesweeper.nv.NVFunctions.mkOr;
+import static org.batfish.minesweeper.nv.NVLang.mkInt;
+import static org.batfish.minesweeper.nv.NVLang.mkOr;
 
 import com.google.common.collect.Iterables;
 import java.util.ArrayList;
@@ -56,7 +56,7 @@ public class TreeCompiler {
     }
     String lower = "" + y;
     String upper = "" + (y + (int) Math.pow(2, 32 - n));
-    return NVFunctions.mkAnd(NVFunctions.mkGe(x, lower), NVFunctions.mkLt(x, upper));
+    return NVLang.mkAnd(NVLang.mkGe(x, lower), NVLang.mkLt(x, upper));
   }
 
   /*
@@ -75,12 +75,12 @@ public class TreeCompiler {
     assert (p.getPrefixLength() <= lower && lower <= upper);
     String lowerBitsMatch = firstBitsEqual(env.get_prefixValue(), pfx, len);
     if (lower == upper) {
-      String equalLen = NVFunctions.mkEq(prefixLen, NVFunctions.mkInt(lower,5));
-      return NVFunctions.mkAnd(equalLen, lowerBitsMatch);
+      String equalLen = NVLang.mkEq(prefixLen, NVLang.mkInt(lower,5));
+      return NVLang.mkAnd(equalLen, lowerBitsMatch);
     } else {
-      String lengthLowerBound = NVFunctions.mkGe(prefixLen, NVFunctions.mkInt(lower,5), 5);
-      String lengthUpperBound = NVFunctions.mkLe(prefixLen, NVFunctions.mkInt(upper,5), 5);
-      return NVFunctions.mkAnd(lengthLowerBound, NVFunctions.mkAnd(lengthUpperBound, lowerBitsMatch));
+      String lengthLowerBound = NVLang.mkGe(prefixLen, NVLang.mkInt(lower,5), 5);
+      String lengthUpperBound = NVLang.mkLe(prefixLen, NVLang.mkInt(upper,5), 5);
+      return NVLang.mkAnd(lengthLowerBound, NVLang.mkAnd(lengthUpperBound, lowerBitsMatch));
     }
   }
 
@@ -101,8 +101,8 @@ public class TreeCompiler {
       SubRange r = line.getLengthRange();
       PrefixRange range = new PrefixRange(p, r);
       String matches = isRelevantFor(other, range);
-      String action = NVFunctions.mkBool(line.getAction() == LineAction.PERMIT);
-      acc = NVFunctions.mkIf(matches, action, acc);
+      String action = NVLang.mkBool(line.getAction() == LineAction.PERMIT);
+      acc = NVLang.mkIf(matches, action, acc);
     }
     return acc + ")";
   }
@@ -156,8 +156,8 @@ public class TreeCompiler {
     for (CommunityListLine line : lines) {
       boolean action = (line.getAction() == LineAction.PERMIT);
       CommunityVar cvar = toCommunityVar(line.getMatchCondition());
-      String c = other.get_communities() + "[" + NVFunctions.communityVarToNvValue(cvar) + "]";
-      acc = NVFunctions.mkIf(c, NVFunctions.mkBool(action), acc);
+      String c = other.get_communities() + "[" + NVLang.communityVarToNvValue(cvar) + "]";
+      acc = NVLang.mkIf(c, NVLang.mkBool(action), acc);
     }
     return acc;
   }
@@ -171,7 +171,7 @@ public class TreeCompiler {
       String acc = "(true";
       for (CommunityVar comm : comms) {
         String c = other.get_communities() + "[" + comm.getLiteralValue() + "]";
-        acc = NVFunctions.mkAnd(acc, c);
+        acc = NVLang.mkAnd(acc, c);
       }
       return acc + ")";
     }
@@ -276,7 +276,7 @@ public class TreeCompiler {
       // Specialize the and case
       if ((p.getRight().getLeft() != null) && (p.getRight().getLeft() == p.getLeft())) {
         Node<Boolean> pr = p.getRight();
-        guard = NVFunctions.mkAnd(
+        guard = NVLang.mkAnd(
             compute(p.getExpr(), p.getEnv().getData(), p.getExport()),
             compute(pr.getExpr(), pr.getEnv().getData(), pr.getExport()));
         l = treeToNV(p.getLeft(), i + 1);
@@ -298,7 +298,7 @@ public class TreeCompiler {
         //System.out.println("Right child: ");
         r = treeToNV(p.getRight(), i + 1);
       }
-      return NVFunctions.mkIf(guard, r, l);
+      return NVLang.mkIf(guard, r, l);
     }
   }
 
@@ -309,7 +309,7 @@ public class TreeCompiler {
       int sz = lst.size();
       for (int idx = 0; idx < sz; idx++) {
         Tuple<String,Node<Boolean>> elt = lst.get(idx);
-        lst.set(idx, new Tuple<>(NVFunctions.mkAnd(guard, elt.getFirst()), elt.getSecond()));
+        lst.set(idx, new Tuple<>(NVLang.mkAnd(guard, elt.getFirst()), elt.getSecond()));
       }
       return lst;
     }
@@ -326,7 +326,7 @@ public class TreeCompiler {
   private List<Tuple<String, Node<Boolean>>> treeToList(Node<Boolean> p) {
     String guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
     List<Tuple<String, Node<Boolean>>> lstTrue = doChild(guard, p.getRight());
-    List<Tuple<String, Node<Boolean>>> lstFalse = doChild(NVFunctions.mkNot(guard), p.getLeft());
+    List<Tuple<String, Node<Boolean>>> lstFalse = doChild(NVLang.mkNot(guard), p.getLeft());
     lstTrue.addAll(lstFalse);
     return lstTrue;
   }

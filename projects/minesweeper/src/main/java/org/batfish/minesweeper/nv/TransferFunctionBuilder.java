@@ -2,8 +2,8 @@ package org.batfish.minesweeper.nv;
 
 
 import static org.batfish.minesweeper.CommunityVarCollector.collectCommunityVars;
-import static org.batfish.minesweeper.nv.NVFunctions.communityVarToNvValue;
-import static org.batfish.minesweeper.nv.NVFunctions.mkInt;
+import static org.batfish.minesweeper.nv.NVLang.communityVarToNvValue;
+import static org.batfish.minesweeper.nv.NVLang.mkInt;
 
 import java.util.ArrayList;
 import java.util.HashSet;

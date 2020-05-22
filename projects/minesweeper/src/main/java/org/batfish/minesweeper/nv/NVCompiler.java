@@ -99,14 +99,22 @@ class InitialAttribute {
 public class NVCompiler {
 
   private Graph _graph;
+  private Map<GraphEdge, String> _edgeMap;
+  private Map<String, Integer> _nodeAssignment;
+
+  // Filename of the main network file, i.e. most likely the one describing the control plane.
+  private String _filename;
 
   private CompilerOptions _flags;
   private Attributes _attrs;
 
-  public NVCompiler(IBatfish batfish, CompilerOptions flags) {
+  public NVCompiler(IBatfish batfish, String filename, CompilerOptions flags) {
     _graph = new Graph(batfish);
     _flags = flags;
     _attrs = new Attributes(flags);
+    _edgeMap = new HashMap<>();
+    _nodeAssignment = new HashMap<>();
+    _filename = filename;
   }
 
   private String optionType(String typ) {
@@ -117,9 +125,8 @@ public class NVCompiler {
     return "dict["+keyTyp+", "+ valTyp+"]";
   }
 
-
   // Fixing this only for simulator right now.
-  private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+  private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(StringBuilder sb) {
     Set<String> bgpSet = new HashSet<>();
     Map<String, String> compiledExportPolicies = new HashMap<>();
     Map<String, String> compiledImportPolicies = new HashMap<>();
@@ -132,8 +139,8 @@ public class NVCompiler {
       Configuration config = entry.getValue();
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
-          if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(edgeMap.get(edge))) {
-            bgpSet.add(edgeMap.get(edge));
+          if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
+            bgpSet.add(_edgeMap.get(edge));
 
             // Doing export policy
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
@@ -198,10 +205,6 @@ public class NVCompiler {
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
               }
               edgeToExportPolicy.put(edge, expPolicyName);
-           /* }
-            else {
-            edgeToExportPolicy.put(edge, compiledExportPolicies.get(statements));
-            } */
 
 
             // Do import policy
@@ -312,6 +315,7 @@ public class NVCompiler {
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
     sb.append("let transferBgpImpPol policy x =\n")
+
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
@@ -320,15 +324,19 @@ public class NVCompiler {
     sb.append("let transferBgpPol e policy b x =\n")
         .append("  match b with\n")
         .append("  | None -> {x with bgp=None}\n")
-        .append("  | Some b ->\n")
-        .append("    let b = {b with bgpNextHop = flipEdge e} in\n")
-        .append("    {x with bgp=policy x.selected b}\n\n");
+        .append("  | Some b ->\n");
 
-    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
-        computeEquivalentPolicies(sb, edgeMap);
+    if (_flags.doNextHop()) {
+      sb.append("    let b = {b with bgpNextHop = flipEdge e} in\n");
+    }
 
-    sb.append(" let transferBgp e x =\n").append("  match e with\n");
+    sb.append("    {x with bgp=policy x.selected b}\n\n");
 
+    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies = computeEquivalentPolicies(sb);
+
+    sb.append(" let transferBgp e x =");
+
+    StringBuilder sbBgp = new StringBuilder();
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
@@ -338,11 +346,11 @@ public class NVCompiler {
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge)
-              && !bgpSet.contains(edgeMap.get(edge))) {
-            bgpSet.add(edgeMap.get(edge));
+              && !bgpSet.contains(_edgeMap.get(edge))) {
+            bgpSet.add(_edgeMap.get(edge));
             String expPolicy = policies.getFirst().get(edge);
-            sb.append("   | ")
-                .append(edgeMap.get(edge))
+            sbBgp.append("   | ")
+                .append(_edgeMap.get(edge))
                 .append(" ->\n")
                 .append("     (*handling redistribution into BGP*)\n")
                 .append("     let b = \n")
@@ -359,13 +367,21 @@ public class NVCompiler {
             GraphEdge invEdge = _graph.getOtherEnd().get(edge);
             String impPolicy = policies.getSecond().get(invEdge);
             if (impPolicy == null) {
-              sb.append("     x\n");
+              sbBgp.append("     x\n");
             } else {
-              sb.append("    " + impPolicy + " x\n");
+              sbBgp.append("    " + impPolicy + " x\n");
             }
           }
         }
       }
+    }
+
+    if (sbBgp.length() == 0 ) {
+      sb.append(" map (fun v -> {v with bgp = None}) x\n");
+    }
+    else {
+      sb.append("\n  match e with\n");
+      sb.append(sbBgp);
     }
   }
 
@@ -381,8 +397,8 @@ public class NVCompiler {
     }*/
 
       sb.append("  let (prefix, prefixLen) = d in\n")
+        .append(" match e with\n");
 
-          .append(" match e with\n");
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
@@ -393,8 +409,8 @@ public class NVCompiler {
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           Interface iface = edge.getStart();
-          if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(edgeMap.get(edge))) {
-            bgpSet.add(edgeMap.get(edge));
+          if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
+            bgpSet.add(_edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
             List<Statement> statements;
             if ((policy != null) && (policy.getStatements() != null)) {
@@ -415,8 +431,10 @@ public class NVCompiler {
                 .append("     in\n")
                 .append("     match b with\n")
                 .append("     | None -> None\n")
-                .append("     | Some b ->\n")
-                .append("      let b = {b with bgpNextHop = flipEdge e} in\n");
+                .append("     | Some b ->\n");
+            if (_flags.doNextHop()) {
+              sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
+            }
 
             // Build the decision tree for the export policy
             TransferFunctionBuilder exportTransBuilder = new TransferFunctionBuilder(config,
@@ -485,12 +503,12 @@ public class NVCompiler {
   }
 
 
-  private void ospfTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap) {
+  private void ospfTrans(boolean singlePrefix, StringBuilder sb) {
     sb.append(" let transferOspf edge o =\n")
         .append("   match o with\n")
         .append("   | None -> None\n")
         .append("   | Some o -> (\n")
-        .append("   match edge with\n");
+        .append("     match edge with\n");
 
     Set<String> ospfSet = new HashSet<>();
 
@@ -502,17 +520,17 @@ public class NVCompiler {
         //        if (!_graph.isInterfaceActive(Protocol.OSPF, iface) || edge.getPeer() == null) {
         //        sb.append("None\n");
         // }
-        if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(edgeMap.get(edge))) {
-          String o = _attrs.buildOspfAttribute("o.ad","o.weight + " + cost,
+        if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(_edgeMap.get(edge))) {
+          String o = _attrs.buildOspfAttribute("o.ad","o.weight +u16 " + cost +"u16",
               "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
               areaId.toString(), "flipEdge edge", "o.ospfOrigin");
-          ospfSet.add(edgeMap.get(edge));
-          sb.append("   | ").append(edgeMap.get(edge)).append(" -> ");
-          sb.append(o);
+          ospfSet.add(_edgeMap.get(edge));
+          sb.append("     | ").append(_edgeMap.get(edge)).append(" -> ");
+          sb.append(o + "\n");
         }
       }
     }
-    sb.append("   | _ -> None\n)\n\n");
+    sb.append("     | _ -> None)\n\n");
   }
 
   // Type declarations
@@ -605,27 +623,17 @@ public class NVCompiler {
 
   }
 
-    public String compile(boolean singlePrefix) {
+
+  private String compileTopology() {
     StringBuilder sb = new StringBuilder();
 
-    printAttributeType(singlePrefix, sb);
-
-    // symbolic destination variable. For now we only use one for single prefix networks.
-    // We should make it so that symbolic destinations are used to represent external messages too.
-    if (singlePrefix) {
-      sb.append("symbolic d : (int, int5)\n\n");
-    }
-
-
     // assign each node to a unique number starting from 0
-    Map<String, Integer> nodeAssignment = new HashMap<>();
     int i = 0;
     for (String router : _graph.getRouters()) {
-      nodeAssignment.put(router, i);
+      _nodeAssignment.put(router, i);
       i++;
     }
 
-    Map<GraphEdge, String> edgeMap = new HashMap<>();
     Set<String> edgeSet = new HashSet<>();
 
     // Create the edge map of the network. We are currently ignoring hanging edges.
@@ -634,14 +642,13 @@ public class NVCompiler {
     // with hanging edges.
     sb.append("let edges = {\n");
     for (GraphEdge edge : _graph.getAllEdges()) {
-      Integer node1 = nodeAssignment.get(edge.getRouter());
-      Integer node2 = nodeAssignment.get(edge.getPeer());
+      Integer node1 = _nodeAssignment.get(edge.getRouter());
+      Integer node2 = _nodeAssignment.get(edge.getPeer());
       String edgeString = "(" + node1 + "~" + node2 + ")";
       if (node2 != null) {
-        edgeMap.put(edge, edgeString);
+        _edgeMap.put(edge, edgeString);
         if (!edgeSet.contains(edgeString)) {
           edgeSet.add(edgeString);
-
           sb.append("  ").append(node1).append("-").append(node2).append("; (*" + edge.toString() + "*)\n");
         }
       }
@@ -649,6 +656,26 @@ public class NVCompiler {
     sb.append("}\n\n");
 
     sb.append("let nodes = ").append(i).append("\n\n");
+
+    return sb.toString();
+
+
+  }
+
+  /***** Control Plane ********/
+    public String compileControlPlane(boolean singlePrefix) {
+    StringBuilder sb = new StringBuilder();
+
+    printAttributeType(singlePrefix, sb);
+
+    sb.append(compileTopology());
+
+    // symbolic destination variable. For now we only use one for single prefix networks.
+    // We should make it so that symbolic destinations are used to represent external messages too.
+    if (singlePrefix) {
+      sb.append("symbolic d : (int, int5)\n\n");
+    }
+
 
     sb.append("let ospfIntraArea = 0u2\n")
         .append("let ospfInterArea = 1u2\n")
@@ -696,7 +723,7 @@ public class NVCompiler {
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration conf = entry.getValue();
-      Integer nodeId = nodeAssignment.get(router);
+      Integer nodeId = _nodeAssignment.get(router);
       sb.append("  | ").append(nodeId).append("n -> \n");
       Set<Prefix> connPrefixes = Graph.getOriginatedNetworks(conf, Protocol.CONNECTED);
       Set<Prefix> staticPrefixes = Graph.getOriginatedNetworks(conf, Protocol.STATIC);
@@ -798,14 +825,14 @@ public class NVCompiler {
     Redistribution redistributionTable = new Redistribution(_graph);
 
     // OSPF transfer function
-    ospfTrans(singlePrefix,sb,edgeMap);
+    ospfTrans(singlePrefix,sb);
 
     // BGP transfer function
     if (singlePrefix) {
-      bgpTrans(singlePrefix, sb, edgeMap, redistributionTable.getRedistributedProtocols());
+      bgpTrans(singlePrefix, sb, _edgeMap, redistributionTable.getRedistributedProtocols());
     }
     else {
-      bgpTransAllPrefixes(sb, edgeMap, redistributionTable.getRedistributedProtocols());
+      bgpTransAllPrefixes(sb, _edgeMap, redistributionTable.getRedistributedProtocols());
     }
 
     if (singlePrefix) {
@@ -822,8 +849,27 @@ public class NVCompiler {
     }
 
     /* Print node assignments for usability reasons */
-    sb.append("(*\n" + nodeAssignment.toString() + "*)");
+    sb.append("(*\n" + _nodeAssignment.toString() + "*)");
 
     return sb.toString();
   }
+
+
+  /* Putting everything together */
+  public CompilerResult compile(boolean singlePrefix){
+    String controlplane = compileControlPlane(singlePrefix);
+    String dataplane = "";
+    if (_flags.doDataplane()) {
+      Dataplane data = new Dataplane(_nodeAssignment, _edgeMap);
+      dataplane = data.generateDataplane();
+    }
+    String allFaults = "";
+    if (_flags.doNodeFaults()) {
+      AllFaultsAnalysis faults = new AllFaultsAnalysis(_filename, _nodeAssignment, _edgeMap);
+      allFaults = faults.compileAllFaults(true, singlePrefix);
+
+    }
+    return new CompilerResult(controlplane, dataplane, allFaults);
+  }
+
 }
