@@ -228,19 +228,19 @@ public class TreeCompiler {
         return "false";
       }
 
-      int x;
+      String prot;
       if (proto.isConnected()) {
-        x = 0;
+        prot = "p_CONNECTED";
       } else if (proto.isStatic()) {
-        x = 1;
+        prot = "p_STATIC";
       } else if (proto.isOspf()) {
-        x = 2;
+        prot = "p_OSPF";
       } else if (proto.isBgp()) {
-        x = 3;
+        prot = "p_BGP";
       } else {
         throw new BatfishException("invalid protocol: " + proto.name());
       }
-      String protoMatch = "(isProtocol " + env.get_protocol() + " " + mkInt(x,2) + ")";
+      String protoMatch = "(isProtocol " + env.get_protocol() + " " + prot + ")";
       debug("MatchProtocol(" + proto.name() + "): " + protoMatch);
       return protoMatch;
     }
