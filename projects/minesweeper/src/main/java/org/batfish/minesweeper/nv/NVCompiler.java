@@ -340,6 +340,7 @@ public class NVCompiler {
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
     sb.append("(* Bgp import policy for a single route *)\n")
+        .append("(* Import policies typically set local pref, apply import filters, etc *)\n")
         .append("let bgpRouteImport policy x =\n")
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
@@ -360,6 +361,12 @@ public class NVCompiler {
     }
 
     sb.append("    {x with bgp=policy x.selected b}\n\n");
+
+    sb.append("(* Each bgpExportPol applies actions to zero or more prefix ranges.\n")
+      .append("   For each range, we do a mapIf with a predicate specifying the range,\n")
+      .append("   then apply whatever logic we're configured to apply for that range.\n")
+      .append("   We then apply a final mapIf for all prefixes not covered so far. If\n")
+      .append("   There's only one policy for all prefixes, we don't do a mapIf at all. *)\n\n");
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
         computeEquivalentPolicies(sb, redistributionTable);
