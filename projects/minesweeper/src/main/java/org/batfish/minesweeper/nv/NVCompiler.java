@@ -445,16 +445,23 @@ public class NVCompiler {
               statements = Collections.emptyList();
             }
 
+            String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
+                               "       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
+            String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
+                               "       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
+            String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
+                               "       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
+
             sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n")
                 .append("     (*handling redistribution into BGP*)\n")
                 .append("     let b = \n")
                 .append("       match x0.selected with\n")
-                .append("       | None -> None\n")
-                .append("       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
-                .append("       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
-                .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
                 .append("       | Some 3u2 -> x0.bgp \n")
-                .append("     in\n")
+                .append(connected)
+                .append(stat)
+                .append(ospf)
+                .append("       | _ -> None\n")
+                .append("   in\n")
                 .append("     (match b with\n")
                 .append("      | None -> None\n")
                 .append("      | Some b ->\n");
@@ -711,7 +718,7 @@ public class NVCompiler {
       sb.append("symbolic d : prefix\n\n");
     }
 
-    sb.append("(** Useful helper definitions **)\n");
+    sb.append("(** Useful helper definitions **)\n\n");
     sb.append("let ospfIntraArea = 0u2\n")
         .append("let ospfInterArea = 1u2\n")
         .append("let ospfE1 = 2u2\n")
@@ -819,7 +826,7 @@ public class NVCompiler {
             if (!first) {
               sb.append(" || ");
             }
-            sb.append("(d = ").append(pre);
+            sb.append("d = (").append(pre).append(")");
             first = false;
           }
           sb.append(" then\n").append(initAttr).append("     else ");
