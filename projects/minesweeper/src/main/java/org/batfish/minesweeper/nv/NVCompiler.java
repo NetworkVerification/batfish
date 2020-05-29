@@ -126,7 +126,11 @@ public class NVCompiler {
   }
 
   // Fixing this only for simulator right now.
-  private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(StringBuilder sb) {
+  private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(
+      StringBuilder sb,
+      Table2<String, Protocol, Set<Protocol>> redistributionTable
+      ) {
+
     Set<String> bgpSet = new HashSet<>();
     Map<String, String> compiledExportPolicies = new HashMap<>();
     Map<String, String> compiledImportPolicies = new HashMap<>();
@@ -134,13 +138,19 @@ public class NVCompiler {
     Map<GraphEdge, String> edgeToImportPolicy = new HashMap<>();
     Map<GraphEdge, String> edgeToExportPolicy = new HashMap<>();
 
+    /*Iterate over each router */
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
+
+      // Compute redistribution of other protocols into BGP for this router
+      Map<Protocol, String> redistAttrs = redistributeIntoBgp("route", redistributionTable, router);
+
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
             bgpSet.add(_edgeMap.get(edge));
+
 
             // Doing export policy
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
@@ -175,8 +185,8 @@ public class NVCompiler {
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
                 exportString
-                    .append("     map (transferBgpExpPol e (fun prot b -> \n")
-                    .append("           " + expPolicies.get(0).getSecond() + ")) x\n\n");
+                    .append("     map (bgpRouteExport e (fun prot b -> \n")
+                    .append("           " + expPolicies.get(0).getSecond() + ") redistributeIntoBgp) x\n\n");
               } else {
                 for (int idx = 0; idx < numberOfPolicies; idx++) {
                   exportString
@@ -186,11 +196,11 @@ public class NVCompiler {
                               + "                   "
                               + expPolicies.get(idx).getFirst()
                               + ")\n")
-                      .append("         (transferBgpExpPol e (fun prot b ->\n")
+                      .append("         (bgpRouteExport e (fun prot b ->\n")
                       .append(
                           "               "
                               + expPolicies.get(idx).getSecond()
-                              + ")) x\n")
+                              + ") redistributeIntoBgp) x\n")
                       .append("    in\n");
                 }
                 exportString.append("     x\n\n");
@@ -201,6 +211,15 @@ public class NVCompiler {
               if (expPolicyName == null) {
                 expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
                 sb.append("let " + expPolicyName + " e x =\n")
+                    .append("  (*handling redistribution into BGP*)\n")
+                    .append("   let redistributeIntoBgp route = \n")
+                    .append("     match route.selected with\n")
+                    .append("     | None -> None\n")
+                    .append("     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
+                    .append("     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
+                    .append("     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
+                    .append("     | Some 3u2 -> route.bgp \n")
+                    .append("   in\n")
                     .append(exportString.toString());
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
               }
@@ -240,14 +259,14 @@ public class NVCompiler {
                   numberOfPolicies = impPolicies.size();
                   // If there is only one policy there is no branching on prefixes just map the policy.
                   if (numberOfPolicies == 1) {
-                    importString.append("     map (transferBgpImpPol (fun prot b -> \n")
+                    importString.append("     map (bgpRouteImport (fun prot b -> \n")
                         .append("           " + impPolicies.get(0).getSecond() + ")) \n");
                   } else {
                     for (int idx = 0; idx < numberOfPolicies; idx++) {
                       importString.append("     let x =\n")
                           .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
                               + "                   " + impPolicies.get(idx).getFirst() + ")\n")
-                          .append("         (transferBgpImpPol (fun prot b ->\n")
+                          .append("         (bgpRouteImport (fun prot b ->\n")
                           .append("               " + impPolicies.get(idx).getSecond() + ")) x \n");
                       }
                       importString.append("     in\n");
@@ -314,16 +333,19 @@ public class NVCompiler {
   // Just to make my life easier making it separately now, but do it for single prefix too.
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
-    sb.append("(* Bgp import policy *)\n")
-        .append("let transferBgpImpPol policy x =\n")
+    sb.append("(* Bgp import policy for a single route *)\n")
+        .append("let bgpRouteImport policy x =\n")
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
         .append("    {x with bgp=policy x.selected b}\n\n");
 
-    sb.append("(* Bgp export policy *)\n")
-        .append("let transferBgpExpPol e policy b x =\n")
-        .append("  match b with\n")
+    sb.append("(* Bgp export policy for a single route.\n"
+        + " policy: the export routing policy\n"
+        + " redistribute: redistribution into BGP"
+        + " x: the route (single RIB entry) over which this operates *)\n")
+        .append("let bgpRouteExport e policy redistribute x =\n")
+        .append("  match redistribute x with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n");
 
@@ -333,7 +355,8 @@ public class NVCompiler {
 
     sb.append("    {x with bgp=policy x.selected b}\n\n");
 
-    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies = computeEquivalentPolicies(sb);
+    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
+        computeEquivalentPolicies(sb, redistributionTable);
 
     sb.append(" let transferBgp e x =");
 
@@ -342,8 +365,6 @@ public class NVCompiler {
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
-      // Compute redistribution of other protocols into BGP for this router
-      Map<Protocol, String> redistAttrs = redistributeIntoBgp("x", redistributionTable, router);
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge)
@@ -353,15 +374,6 @@ public class NVCompiler {
             sbBgp.append("   | ")
                 .append(_edgeMap.get(edge))
                 .append(" ->\n")
-                .append("     (*handling redistribution into BGP*)\n")
-                .append("     let b = \n")
-                .append("       match x.selected with\n")
-                .append("       | None -> None\n")
-                .append("       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
-                .append("       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
-                .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
-                .append("       | Some 3u2 -> x.bgp \n")
-                .append("     in\n")
                 .append("     let x = " + expPolicy + " e x in\n");
 
             // Do import policy now
@@ -539,7 +551,7 @@ public class NVCompiler {
     String connType = "int8"; // ad
     String staticType = "int8"; // ad
     String bestType = "int2"; // proto
-    sb.append("type prefix = (int, int5) (* IP prefix; tuple of (address, length) *)\n")
+    sb.append("type prefix = (int, int6) (* IP prefix; tuple of (address, length) *)\n")
         .append("type ospfType = " + _attrs.buildOspfType() + "\n")
         .append("type bgpType = " + _attrs.buildBgpType() + "\n")
         .append("type rib = {\n")
