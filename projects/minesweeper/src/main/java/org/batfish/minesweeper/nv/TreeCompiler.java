@@ -189,24 +189,40 @@ public class TreeCompiler {
   }
 
   private String computeReturn(TransferParam<Environment> p) {
-    return (p.getData().get_valid() ?
-        "(Some {bgpAd= "
-            + p.getData().get_ad()
-            + "; "
-            + "lp= "
-            + p.getData().get_lp()
-            + "; "
-            + "aslen= "
-            + p.getData().get_cost()
-            + "; "
-            + "med= "
-            + p.getData().get_med()
-            + ";"
-            + "comms= "
-            + p.getData().get_communities()
-            + (_flags.doOrigin() ? ";bgpOrigin= " + p.getData().get_bgpOrigin() : "")
-            + (_flags.doNextHop() ? ";bgpNextHop= " + p.getData().get_bgpNextHop() : "")
-            + ";})" : "None");
+    Environment data = p.getData();
+    if (!data.get_valid()) return "None";
+    // Compute updates for each field separately
+    String ad = (data.get_ad().equals("b.bgpAd") ? "" :
+                "bgpAd= " + data.get_ad() + "; ");
+    String lp = (data.get_lp().equals("b.lp") ? "" :
+                "lp= " + data.get_lp() + "; ");
+    String aslen = (data.get_cost().equals("b.aslen") ? "" :
+                "aslen= " + data.get_cost() + "; ");
+    String med = (data.get_med().equals("b.med") ? "" :
+                "med= " + data.get_med() + "; ");
+    String comms = (data.get_communities().equals("b.comms") ? "" :
+                "comms= " + data.get_communities() + "; ");
+    String bgpOrigin =(!_flags.doOrigin() || data.get_bgpOrigin().equals("b.bgpOrigin") ? "" :
+                "bgpOrigin= " + data.get_bgpOrigin() + "; ");
+    String bgpNextHop =(!_flags.doNextHop() || data.get_bgpNextHop().equals("b.bgpNextHop") ? "" :
+                "bgpNextHop= " + data.get_bgpNextHop() + "; ");
+
+    // If no field is updated, just return the original value
+    if (ad.equals("") && lp.equals("") && aslen.equals("") && med.equals("") &&
+        comms.equals("") && bgpOrigin.equals("") && bgpNextHop.equals(""))
+        return "(Some b)";
+
+    StringBuilder sb = new StringBuilder();
+    // If every field is updated, we don't need the "with" syntax
+    if (!ad.equals("") && !lp.equals("") && !aslen.equals("") && !med.equals("") &&
+        !comms.equals("") && !bgpOrigin.equals("") && !bgpNextHop.equals("")) {
+      sb.append("(Some { ");
+    } else {
+      sb.append("(Some {b with ");
+    }
+    sb.append(ad).append(lp).append(aslen).append(med).append(comms).append(bgpOrigin).append(bgpNextHop);
+    sb.append("})");
+    return sb.toString();
   }
 
   private void debug(String msg) {
