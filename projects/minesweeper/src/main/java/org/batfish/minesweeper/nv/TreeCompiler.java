@@ -215,7 +215,8 @@ public class TreeCompiler {
     StringBuilder sb = new StringBuilder();
     // If every field is updated, we don't need the "with" syntax
     if (!ad.equals("") && !lp.equals("") && !aslen.equals("") && !med.equals("") &&
-        !comms.equals("") && !bgpOrigin.equals("") && !bgpNextHop.equals("")) {
+        !comms.equals("") && (!bgpOrigin.equals("") || !_flags.doOrigin()) &&
+        (!bgpNextHop.equals("") || !_flags.doNextHop())) {
       sb.append("(Some { ");
     } else {
       sb.append("(Some {b with ");
