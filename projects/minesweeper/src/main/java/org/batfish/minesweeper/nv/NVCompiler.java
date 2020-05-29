@@ -175,7 +175,7 @@ public class NVCompiler {
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
                 exportString
-                    .append("     map (transferBgpPol e (fun prot b -> \n")
+                    .append("     map (transferBgpExpPol e (fun prot b -> \n")
                     .append("           " + expPolicies.get(0).getSecond() + ")) x\n\n");
               } else {
                 for (int idx = 0; idx < numberOfPolicies; idx++) {
@@ -186,7 +186,7 @@ public class NVCompiler {
                               + "                   "
                               + expPolicies.get(idx).getFirst()
                               + ")\n")
-                      .append("         (transferBgpPol e (fun prot b ->\n")
+                      .append("         (transferBgpExpPol e (fun prot b ->\n")
                       .append(
                           "               "
                               + expPolicies.get(idx).getSecond()
@@ -314,14 +314,15 @@ public class NVCompiler {
   // Just to make my life easier making it separately now, but do it for single prefix too.
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
-    sb.append("let transferBgpImpPol policy x =\n")
-
+    sb.append("(* Bgp import policy *)\n")
+        .append("let transferBgpImpPol policy x =\n")
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n")
         .append("    {x with bgp=policy x.selected b}\n\n");
 
-    sb.append("let transferBgpPol e policy b x =\n")
+    sb.append("(* Bgp export policy *)\n")
+        .append("let transferBgpExpPol e policy b x =\n")
         .append("  match b with\n")
         .append("  | None -> {x with bgp=None}\n")
         .append("  | Some b ->\n");
@@ -537,17 +538,17 @@ public class NVCompiler {
   private void printAttributeType(boolean singlePrefix, StringBuilder sb) {
     String connType = "int8"; // ad
     String staticType = "int8"; // ad
-    // String bgpType = "option[(int,int,int,int)]"; // (ad, lp, cost, med, comms)
     String bestType = "int2"; // proto
-    sb.append("type ospfType = " + _attrs.buildOspfType() + "\n")
+    sb.append("type prefix = (int, int5) (* IP prefix; tuple of (address, length) *)\n")
+        .append("type ospfType = " + _attrs.buildOspfType() + "\n")
         .append("type bgpType = " + _attrs.buildBgpType() + "\n")
         .append("type rib = {\n")
         .append("    connected:")
         .append(optionType(connType))
-        .append(";\n")
+        .append("; (* Just track administrative distance *)\n")
         .append("    static:")
         .append(optionType(staticType))
-        .append(";\n")
+        .append("; (* Just track administrative distance *)\n")
         .append("    ospf:")
         .append(optionType("ospfType"))
         .append(";\n")
@@ -556,11 +557,18 @@ public class NVCompiler {
         .append(";\n")
         .append("    selected:")
         .append(optionType(bestType))
-        .append("; }\n");
+        .append("; (* Which protocol has the best route *) }\n");
 
     // Either a single attribute or a map of attributes from prefix to route.
     sb.append("type attribute = " +
-        (singlePrefix ? "rib" : dictType("(int,int5)", "rib") )+ "\n\n");
+        (singlePrefix ? "rib" : dictType("prefix", "rib") )+ "\n\n");
+
+    // Definitions for "best" field
+    sb.append("(* Definitions for the \"best\" field *)\n")
+        .append("let p_CONNECTED = 0u2\n")
+        .append("let p_STATIC = 1u2\n")
+        .append("let p_OSPF = 2u2\n")
+        .append("let p_BGP = 3u2\n\n");
 
   }
 
@@ -569,43 +577,48 @@ public class NVCompiler {
   {
     sb.append("let min x y = x <u8 y\n\n");
 
-    sb.append("let pickOption f x y =\n")
+    sb.append("(* Compute the better of x and y according to f *)\n")
+        .append("(* Return a boolean (true for x, false for y) for efficiency reasons *)\n")
+        .append("let pickOption f x y =\n")
         .append("  match (x,y) with\n")
         .append("  | (None, _) -> false")
         .append("  | (_, None) -> true\n")
         .append("  | (Some a, Some b) -> f a b\n\n");
 
-    sb.append("let betterOspf o1 o2 =\n")
+    sb.append("let pickMinOption = pickOption min\n\n");
+
+    sb.append("(* OSPF Route ranking: first compare areas, then weights *)\n")
+        .append("let betterOspf o1 o2 =\n")
         .append("  if o1.areaType <u2 o2.areaType then true\n")
         .append("  else if o2.areaType <u2 o1.areaType then false\n")
         .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
 
-    sb.append("let betterBgp b1 b2 =\n")
+    sb.append("(* BGP Route ranking: first compare local pref, then path length, then MED *)\n")
+        .append("let betterBgp b1 b2 =\n")
         .append("  if b1.lp > b2.lp then true\n")
         .append("  else if b2.lp > b1.lp then false\n")
         .append("  else if b1.aslen < b2.aslen then true\n")
         .append("  else if b2.aslen < b1.aslen then false\n")
         .append("  else if b1.med <= b2.med then true else false\n\n");
 
-    sb.append("let betterEqOption o1 o2 =\n")
-        .append("  match (o1,o2) with\n")
-        .append("  | (_, None) -> true\n")
-        .append("  | (None, _) -> false\n")
-        .append("  | (Some a, Some b) -> a <=u8 b\n\n");
-
-    sb.append("let best c s o b =\n")
+    sb.append("(* Determine which of the four protocols has the best route by comparing their ADs *)\n")
+        .append("let best c s o b =\n")
         .append("  match (c,s,o,b) with\n")
+        .append("  (* If no protocol has a route, then we have no route at all *)\n")
         .append("  | (None,None,None,None) -> None\n")
         .append("  | _ -> \n")
+        .append("      (* Otherwise, get administrative distances for osfp and bgp... *)\n")
         .append("      let o = match o with | None -> None | Some o -> Some o.ospfAd in\n")
         .append("      let b = match b with | None -> None | Some b -> Some b.bgpAd in\n")
-        .append("      let (x,p1) = if betterEqOption c s then (c,0u2) else (s,1u2) in\n")
-        .append("      let (y,p2) = if betterEqOption o b then (o,2u2) else (b,3u2) in\n")
-        .append("      Some (if betterEqOption x y then p1 else p2)\n\n");
+        .append("      (* ...and figure out which of the protocols has the lowest AD *)\n")
+        .append("      let (x,p1) = if pickMinOption c s then (c,p_CONNECTED) else (s,p_STATIC) in\n")
+        .append("      let (y,p2) = if pickMinOption o b then (o,p_OSPF) else (b,p_BGP) in\n")
+        .append("      Some (if pickMinOption x y then p1 else p2)\n\n");
 
-    sb.append("let mergeValues x y =\n")
-        .append("  let c = if (pickOption min x.connected y.connected) then x.connected else y.connected in\n")
-        .append("  let s = if (pickOption min x.static y.static) then x.static else y.static in\n")
+    sb.append("(* Compute the best route for each protocol individually, then select the best one *)\n")
+        .append("let mergeValues x y =\n")
+        .append("  let c = if (pickMinOption x.connected y.connected) then x.connected else y.connected in\n")
+        .append("  let s = if (pickMinOption x.static y.static) then x.static else y.static in\n")
         .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
         .append("  let b = if (pickOption betterBgp x.bgp y.bgp) then x.bgp else y.bgp in\n")
         .append("  { connected = c;\n"
@@ -623,7 +636,6 @@ public class NVCompiler {
 
   }
 
-
   private String compileTopology() {
     StringBuilder sb = new StringBuilder();
 
@@ -633,6 +645,8 @@ public class NVCompiler {
       _nodeAssignment.put(router, i);
       i++;
     }
+
+    sb.append("let nodes = ").append(i).append("\n\n");
 
     Set<String> edgeSet = new HashSet<>();
 
@@ -655,38 +669,30 @@ public class NVCompiler {
     }
     sb.append("}\n\n");
 
-    sb.append("let nodes = ").append(i).append("\n\n");
-
     return sb.toString();
-
-
   }
 
   /***** Control Plane ********/
-    public String compileControlPlane(boolean singlePrefix) {
+  public String compileControlPlane(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
 
     printAttributeType(singlePrefix, sb);
 
-    sb.append(compileTopology());
+    String topology = compileTopology();
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
     if (singlePrefix) {
-      sb.append("symbolic d : (int, int5)\n\n");
+      sb.append("symbolic d : prefix\n\n");
     }
 
-
+    sb.append("(** Useful helper definitions **)\n");
     sb.append("let ospfIntraArea = 0u2\n")
         .append("let ospfInterArea = 1u2\n")
         .append("let ospfE1 = 2u2\n")
         .append("let ospfE2 = 3u2\n\n");
 
-    sb.append("let protoConn = 0u8\n")
-        .append("let protoStatic = 1u8\n")
-        .append("let protoOspf = 2u8\n")
-        .append("let protoBgp = 3u8\n\n");
-
+    sb.append("(* Check if the selected protocol is x *)\n");
     if (singlePrefix) {
       sb.append("let isProtocol fib x = fib = x\n");
     }
@@ -708,7 +714,6 @@ public class NVCompiler {
 
     // Print out merge function
     merge(singlePrefix, sb);
-
 
     sb.append("let init node =\n");
 
@@ -848,6 +853,7 @@ public class NVCompiler {
           .append("  x\n\n");
     }
 
+    sb.append(topology);
     /* Print node assignments for usability reasons */
     sb.append("(*\n" + _nodeAssignment.toString() + "*)");
 
