@@ -806,11 +806,7 @@ public class NVCompiler {
             if (!first) {
               sb.append(" || ");
             }
-            sb.append("(d = (")
-                .append(pre.getStartIp().asLong())
-                .append(", ")
-                .append(pre.getPrefixLength())
-                .append("u5))");
+            sb.append("(d = ").append(pre);
             first = false;
           }
           sb.append(" then\n").append(initAttr).append("     else ");
@@ -821,11 +817,9 @@ public class NVCompiler {
           String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
           sb.append(initAttr);
           for (Prefix pre : attrpre.getValue()) {
-            sb.append("    let d = d[(")
-                .append(pre.getStartIp().asLong())
-                .append(", ")
-                .append(pre.getPrefixLength())
-                .append("u5) := route] in\n");
+            sb.append("    let d = d[")
+              .append(pre)
+              .append(" := route] in\n");
           }
         }
         sb.append("      d\n");
