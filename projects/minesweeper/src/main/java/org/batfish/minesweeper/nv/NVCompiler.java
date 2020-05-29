@@ -210,15 +210,21 @@ public class NVCompiler {
               String expPolicyName = compiledExportPolicies.get(exportString.toString());
               if (expPolicyName == null) {
                 expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
+                String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
+                                   "     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
+                String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
+                                   "     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
+                String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
+                                   "     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
                 sb.append("let " + expPolicyName + " e x =\n")
                     .append("  (*handling redistribution into BGP*)\n")
                     .append("   let redistributeIntoBgp route = \n")
                     .append("     match route.selected with\n")
-                    .append("     | None -> None\n")
-                    .append("     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
-                    .append("     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
-                    .append("     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
                     .append("     | Some 3u2 -> route.bgp \n")
+                    .append(connected)
+                    .append(stat)
+                    .append(ospf)
+                    .append("     | _ -> None\n")
                     .append("   in\n")
                     .append(exportString.toString());
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
