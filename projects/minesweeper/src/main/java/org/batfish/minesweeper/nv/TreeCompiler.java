@@ -15,6 +15,7 @@ import org.batfish.datamodel.CommunityList;
 import org.batfish.datamodel.CommunityListLine;
 import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.LineAction;
+import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.PrefixRange;
 import org.batfish.datamodel.RouteFilterLine;
@@ -54,8 +55,8 @@ public class TreeCompiler {
     if (n == 0) {
       return "true";
     }
-    String lower = "" + y;
-    String upper = "" + (y + (int) Math.pow(2, 32 - n));
+    String lower = "" + Ip.create(y);
+    String upper = "" + Ip.create(y + (int) Math.pow(2, 32 - n));
     return NVLang.mkAnd(NVLang.mkGe(x, lower), NVLang.mkLt(x, upper));
   }
 
@@ -75,11 +76,11 @@ public class TreeCompiler {
     assert (p.getPrefixLength() <= lower && lower <= upper);
     String lowerBitsMatch = firstBitsEqual(env.get_prefixValue(), pfx, len);
     if (lower == upper) {
-      String equalLen = NVLang.mkEq(prefixLen, NVLang.mkInt(lower,5));
+      String equalLen = NVLang.mkEq(prefixLen, NVLang.mkInt(lower,6));
       return NVLang.mkAnd(equalLen, lowerBitsMatch);
     } else {
-      String lengthLowerBound = NVLang.mkGe(prefixLen, NVLang.mkInt(lower,5), 5);
-      String lengthUpperBound = NVLang.mkLe(prefixLen, NVLang.mkInt(upper,5), 5);
+      String lengthLowerBound = NVLang.mkGe(prefixLen, NVLang.mkInt(lower,6), 6);
+      String lengthUpperBound = NVLang.mkLe(prefixLen, NVLang.mkInt(upper,6), 6);
       return NVLang.mkAnd(lengthLowerBound, NVLang.mkAnd(lengthUpperBound, lowerBitsMatch));
     }
   }
