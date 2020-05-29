@@ -1,2 +1,2 @@
 init-snapshot benchmarks/FatTrees/sp8 tr-fat8
-get compile doData="false", file="sp8Single", doNodeFaults="false", singlePrefix="true"
+get compile doData="false", file="sp8Single", doNodeFaults="false", singlePrefix="false"
