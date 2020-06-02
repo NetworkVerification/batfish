@@ -423,6 +423,7 @@ public class NVCompiler {
     }*/
 
       sb.append("  let (prefix, prefixLen) = d in\n")
+        .append("let prot = x0.selected in\n") // Very much a hack, there's almost certainly a better way to do this
         .append(" match e with\n");
 
 
@@ -531,7 +532,7 @@ public class NVCompiler {
       }
     }
     if (singlePrefix) {
-      sb.append(")\n\n");
+      sb.append("\n\n");
     }
   }
 
@@ -725,15 +726,16 @@ public class NVCompiler {
         .append("let ospfE2 = 3u2\n\n");
 
     sb.append("(* Check if the selected protocol is x *)\n");
-    if (singlePrefix) {
-      sb.append("let isProtocol fib x = fib = x\n");
-    }
-    else {
+    // I don't know why we need separate versions for single/multiple prefix?
+    // if (singlePrefix) {
+    //   sb.append("let isProtocol fib x = fib = x\n");
+    // }
+    // else {
       sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
         .append("  | Some y -> x = y\n\n");
-    }
+    // }
 
     sb.append("let flipEdge e = \n")
         .append("  match e with")
