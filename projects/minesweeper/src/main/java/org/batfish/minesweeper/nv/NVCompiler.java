@@ -216,17 +216,22 @@ public class NVCompiler {
                                    "     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
                 String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
                                    "     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
-                sb.append("let " + expPolicyName + " e x =\n")
-                    .append("  (*handling redistribution into BGP*)\n")
-                    .append("   let redistributeIntoBgp route = \n")
+                sb.append("let " + expPolicyName + " e x =\n");
+                // Don't bother writing a match if it would be trivial
+                if (connected.equals("") && stat.equals("") && ospf.equals("")) {
+                  sb.append("  (* No redistribution into BGP configured *)\n")
+                    .append("   let redistributeIntoBgp route = route.bgp in\n");
+                } else {
+                  sb.append("  (* Handling redistribution into BGP *)\n")
+                    .append("   let redistributeIntoBgp route =\n")
                     .append("     match route.selected with\n")
-                    .append("     | Some 3u2 -> route.bgp \n")
                     .append(connected)
                     .append(stat)
                     .append(ospf)
-                    .append("     | _ -> None\n")
-                    .append("   in\n")
-                    .append(exportString.toString());
+                    .append("     | _ -> route.bgp\n")
+                    .append("   in\n");
+                  }
+                sb.append(exportString.toString());
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
               }
               edgeToExportPolicy.put(edge, expPolicyName);
@@ -453,19 +458,23 @@ public class NVCompiler {
             String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
                                "       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
 
-            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n")
-                .append("     (*handling redistribution into BGP*)\n")
-                .append("     let b = \n")
-                .append("       match x0.selected with\n")
-                .append("       | Some 3u2 -> x0.bgp \n")
+            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n");
+            // Don't bother writing a match if it would be trivial
+            if (connected.equals("") && stat.equals("") && ospf.equals("")) {
+              sb.append("   let b = x0.bgp in\n");
+            } else {
+              sb.append("   (* Handling redistribution into BGP *)\n")
+                .append("   let b = \n")
+                .append("     match x0.selected with\n")
                 .append(connected)
                 .append(stat)
                 .append(ospf)
-                .append("       | _ -> None\n")
-                .append("   in\n")
-                .append("     (match b with\n")
-                .append("      | None -> None\n")
-                .append("      | Some b ->\n");
+                .append("     | _ -> x0.bgp\n")
+                .append("   in\n");
+            }
+            sb.append("     (match b with\n")
+              .append("      | None -> None\n")
+              .append("      | Some b ->\n");
             if (_flags.doNextHop()) {
               sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
             }
@@ -880,6 +889,8 @@ public class NVCompiler {
           .append("  let x = map (fun x -> {x with ospf=transferOspf edge x.ospf; connected=None; static=None}) x in\n")
           .append("  x\n\n");
     }
+
+    sb.append("let sol = solution {init=init; trans=trans; merge=merge}\n\n");
 
     sb.append(topology);
     /* Print node assignments for usability reasons */
