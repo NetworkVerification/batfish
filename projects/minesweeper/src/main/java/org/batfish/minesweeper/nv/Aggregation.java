@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import org.batfish.common.BatfishException;
 import org.batfish.datamodel.GeneratedRoute;
@@ -36,6 +37,10 @@ public class Aggregation {
   public Aggregation(Graph _graph, Set<Prefix> _originatedPrefixes) {
     this._graph = _graph;
     this._originatedPrefixes = _originatedPrefixes;
+
+    computeAggregates();
+    computeSuppressedAggregates();
+    computeContributingRoutes();
   }
 
   public Map<String, Set<Prefix>> getSuppressedAggregates() {
@@ -45,7 +50,6 @@ public class Aggregation {
   public Map<String, List<GeneratedRoute>> getAggregates() {
     return _aggregates;
   }
-
 
   public Map<GeneratedRoute, Set<Prefix>> getContributing() {
     return _contributing;
@@ -90,9 +94,35 @@ public class Aggregation {
             });
   }
 
+  private void computeContributingRoutes() {
+    Map<GeneratedRoute, Set<Prefix>> acc = new HashMap<>();
+    Set<GeneratedRoute> grs = new HashSet<>();
+
+    // Get all GeneratedRoutes
+    for (Entry<String, List<GeneratedRoute>> gr : _aggregates.entrySet()) {
+      grs.addAll(gr.getValue());
+    }
+
+    // For each originated network
+
+    for (Prefix prefix : _originatedPrefixes) {
+      for (GeneratedRoute g : grs) {
+        Prefix pgr = g.getNetwork();
+        if (pgr.containsPrefix(prefix)) {
+          Set<Prefix> contributingPrefixes = acc.computeIfAbsent(g, k -> new HashSet<>());
+          // If not allocated, allocate.
+          // Add prefix to contributing prefixes for pgr.
+          contributingPrefixes.add(prefix);
+        }
+      }
+    }
+    _contributing = acc;
+  }
+
+
   /*
    * Determines whether to model each aggregate route as
-   * suppressing a more specific, or including the more specific
+   * suppressing a more specific, or including the more specific, for a given router.
    */
   private Map<Prefix, Boolean> aggregateRoutes(String name) {
     Map<Prefix, Boolean> acc = new HashMap<>();

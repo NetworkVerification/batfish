@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.datamodel.Configuration;
+import org.batfish.datamodel.GeneratedRoute;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.ospf.OspfArea;
@@ -128,7 +129,8 @@ public class NVCompiler {
   // Fixing this only for simulator right now.
   private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(
       StringBuilder sb,
-      Table2<String, Protocol, Set<Protocol>> redistributionTable
+      Table2<String, Protocol, Set<Protocol>> redistributionTable,
+      Aggregation agg
       ) {
 
     Set<String> bgpSet = new HashSet<>();
@@ -145,6 +147,12 @@ public class NVCompiler {
 
       // Compute redistribution of other protocols into BGP for this router
       Map<Protocol, String> redistAttrs = redistributeIntoBgp("route", redistributionTable, router);
+
+      // Get aggregate routes for this router.
+
+      List<GeneratedRoute> aggregates = agg.getAggregates().get(router);
+      Set<Prefix> suppresed = agg.getSuppressedAggregates().get(router);
+      Map<GeneratedRoute, Set<Prefix>> contributing = agg.getContributing();
 
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
@@ -180,8 +188,39 @@ public class NVCompiler {
               StringBuilder exportString = new StringBuilder();
               int numberOfPolicies = expPolicies.size();
 
-             // String expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
-              //exportString.append("let " + expPolicyName + " =\n");
+              // Add aggregation explicitly.
+              /* TODO: this assumes that the default route components are set and no route-maps are applied over aggregates.
+                 The former should be easy to do, but i can't figure it out through batfish millions of classes.
+               */
+
+              for (GeneratedRoute aggregate : aggregates) {
+                Prefix p = aggregate.getNetwork();
+                exportString.append("   let x = mapIf (fun p -> p = ")
+                .append(p).append(") (fun v -> \n")
+                .append("      match v.bgp with\n)")
+                .append("      | None -> \n")
+                .append("        if (");
+
+                boolean notFirst = false;
+                for (Prefix contributor : contributing.get(aggregate)) {
+                  if (notFirst) {
+                    exportString.append(" || ");
+                  }
+                  notFirst = true;
+                  exportString.append("(x[")
+                      .append(contributor)
+                      .append("].selected = 3u2)");
+                }
+                exportString.append(") then ")
+                    .append("{v with bgp= ")
+                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}","None", "getSourceNode e"))
+                    .append(" else None\n")
+                    .append("      | Some _ -> v) x in\n");
+
+              }
+
+              // TODO: suppress routes.
+
               // If there is only one policy there is no branching on prefixes just map the policy.
               if (numberOfPolicies == 1) {
                 exportString
@@ -332,7 +371,7 @@ public class NVCompiler {
 
   // Just to make my life easier making it separately now, but do it for single prefix too.
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
-      Table2<String, Protocol, Set<Protocol>> redistributionTable) {
+      Table2<String, Protocol, Set<Protocol>> redistributionTable, Aggregation agg) {
     sb.append("(* Bgp import policy for a single route *)\n")
         .append("let bgpRouteImport policy x =\n")
         .append("  match x.bgp with\n")
@@ -356,7 +395,7 @@ public class NVCompiler {
     sb.append("    {x with bgp=policy x.selected b}\n\n");
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
-        computeEquivalentPolicies(sb, redistributionTable);
+        computeEquivalentPolicies(sb, redistributionTable, agg);
 
     sb.append(" let transferBgp e x =");
 
@@ -737,6 +776,10 @@ public class NVCompiler {
           .append("  match node with\n");
     }
 
+
+    // All prefixes originated
+    Set<Prefix> allPrefixes = new HashSet<>();
+
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration conf = entry.getValue();
@@ -752,7 +795,6 @@ public class NVCompiler {
       ospfPrefixes = ospfPrefixes == null ? new HashSet<>() : ospfPrefixes;
       bgpPrefixes = bgpPrefixes == null ? new HashSet<>() : bgpPrefixes;
 
-      Set<Prefix> allPrefixes = new HashSet<>();
       allPrefixes.addAll(connPrefixes);
       allPrefixes.addAll(staticPrefixes);
       allPrefixes.addAll(ospfPrefixes);
@@ -833,7 +875,11 @@ public class NVCompiler {
     }
 
 
+    // Redistribution into BGP
     Redistribution redistributionTable = new Redistribution(_graph);
+
+    // Route Aggregation
+    Aggregation agg = new Aggregation(_graph, allPrefixes);
 
     // OSPF transfer function
     ospfTrans(singlePrefix,sb);
@@ -843,7 +889,7 @@ public class NVCompiler {
       bgpTrans(singlePrefix, sb, _edgeMap, redistributionTable.getRedistributedProtocols());
     }
     else {
-      bgpTransAllPrefixes(sb, _edgeMap, redistributionTable.getRedistributedProtocols());
+      bgpTransAllPrefixes(sb, _edgeMap, redistributionTable.getRedistributedProtocols(), agg);
     }
 
     if (singlePrefix) {
