@@ -249,17 +249,28 @@ public class NVCompiler {
               String expPolicyName = compiledExportPolicies.get(exportString.toString());
               if (expPolicyName == null) {
                 expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
-                sb.append("let " + expPolicyName + " e x =\n")
-                    .append("  (*handling redistribution into BGP*)\n")
-                    .append("   let redistributeIntoBgp route = \n")
+                String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
+                                   "     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
+                String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
+                                   "     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
+                String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
+                                   "     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
+                sb.append("let " + expPolicyName + " e x =\n");
+                // Don't bother writing a match if it would be trivial
+                if (connected.equals("") && stat.equals("") && ospf.equals("")) {
+                  sb.append("  (* No redistribution into BGP configured *)\n")
+                    .append("   let redistributeIntoBgp route = route.bgp in\n");
+                } else {
+                  sb.append("  (* Handling redistribution into BGP *)\n")
+                    .append("   let redistributeIntoBgp route =\n")
                     .append("     match route.selected with\n")
-                    .append("     | None -> None\n")
-                    .append("     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
-                    .append("     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
-                    .append("     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
-                    .append("     | Some 3u2 -> route.bgp \n")
-                    .append("   in\n")
-                    .append(exportString.toString());
+                    .append(connected)
+                    .append(stat)
+                    .append(ospf)
+                    .append("     | _ -> route.bgp\n")
+                    .append("   in\n");
+                  }
+                sb.append(exportString.toString());
                 compiledExportPolicies.put(exportString.toString(), expPolicyName);
               }
               edgeToExportPolicy.put(edge, expPolicyName);
@@ -373,6 +384,7 @@ public class NVCompiler {
   private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable, Aggregation agg) {
     sb.append("(* Bgp import policy for a single route *)\n")
+        .append("(* Import policies typically set local pref, apply import filters, etc *)\n")
         .append("let bgpRouteImport policy x =\n")
         .append("  match x.bgp with\n")
         .append("  | None -> {x with bgp=None}\n")
@@ -393,6 +405,12 @@ public class NVCompiler {
     }
 
     sb.append("    {x with bgp=policy x.selected b}\n\n");
+
+    sb.append("(* Each bgpExportPol applies actions to zero or more prefix ranges.\n")
+      .append("   For each range, we do a mapIf with a predicate specifying the range,\n")
+      .append("   then apply whatever logic we're configured to apply for that range.\n")
+      .append("   We then apply a final mapIf for all prefixes not covered so far. If\n")
+      .append("   There's only one policy for all prefixes, we don't do a mapIf at all. *)\n\n");
 
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
         computeEquivalentPolicies(sb, redistributionTable, agg);
@@ -449,6 +467,7 @@ public class NVCompiler {
     }*/
 
       sb.append("  let (prefix, prefixLen) = d in\n")
+        .append("let prot = x0.selected in\n") // Very much a hack, there's almost certainly a better way to do this
         .append(" match e with\n");
 
 
@@ -471,19 +490,30 @@ public class NVCompiler {
               statements = Collections.emptyList();
             }
 
-            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n")
-                .append("     (*handling redistribution into BGP*)\n")
-                .append("     let b = \n")
-                .append("       match x0.selected with\n")
-                .append("       | None -> None\n")
-                .append("       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n")
-                .append("       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC)+ "\n")
-                .append("       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n")
-                .append("       | Some 3u2 -> x0.bgp \n")
-                .append("     in\n")
-                .append("     (match b with\n")
-                .append("      | None -> None\n")
-                .append("      | Some b ->\n");
+            String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
+                               "       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
+            String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
+                               "       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
+            String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
+                               "       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
+
+            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n");
+            // Don't bother writing a match if it would be trivial
+            if (connected.equals("") && stat.equals("") && ospf.equals("")) {
+              sb.append("   let b = x0.bgp in\n");
+            } else {
+              sb.append("   (* Handling redistribution into BGP *)\n")
+                .append("   let b = \n")
+                .append("     match x0.selected with\n")
+                .append(connected)
+                .append(stat)
+                .append(ospf)
+                .append("     | _ -> x0.bgp\n")
+                .append("   in\n");
+            }
+            sb.append("     (match b with\n")
+              .append("      | None -> None\n")
+              .append("      | Some b ->\n");
             if (_flags.doNextHop()) {
               sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
             }
@@ -550,7 +580,7 @@ public class NVCompiler {
       }
     }
     if (singlePrefix) {
-      sb.append(")\n\n");
+      sb.append("\n\n");
     }
   }
 
@@ -737,22 +767,23 @@ public class NVCompiler {
       sb.append("symbolic d : prefix\n\n");
     }
 
-    sb.append("(** Useful helper definitions **)\n");
+    sb.append("(** Useful helper definitions **)\n\n");
     sb.append("let ospfIntraArea = 0u2\n")
         .append("let ospfInterArea = 1u2\n")
         .append("let ospfE1 = 2u2\n")
         .append("let ospfE2 = 3u2\n\n");
 
     sb.append("(* Check if the selected protocol is x *)\n");
-    if (singlePrefix) {
-      sb.append("let isProtocol fib x = fib = x\n");
-    }
-    else {
+    // I don't know why we need separate versions for single/multiple prefix?
+    // if (singlePrefix) {
+    //   sb.append("let isProtocol fib x = fib = x\n");
+    // }
+    // else {
       sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
         .append("  | Some y -> x = y\n\n");
-    }
+    // }
 
     sb.append("let flipEdge e = \n")
         .append("  match e with")
@@ -848,7 +879,7 @@ public class NVCompiler {
             if (!first) {
               sb.append(" || ");
             }
-            sb.append("(d = ").append(pre);
+            sb.append("d = (").append(pre).append(")");
             first = false;
           }
           sb.append(" then\n").append(initAttr).append("     else ");
@@ -904,6 +935,8 @@ public class NVCompiler {
           .append("  let x = map (fun x -> {x with ospf=transferOspf edge x.ospf; connected=None; static=None}) x in\n")
           .append("  x\n\n");
     }
+
+    sb.append("let sol = solution {init=init; trans=trans; merge=merge}\n\n");
 
     sb.append(topology);
     /* Print node assignments for usability reasons */

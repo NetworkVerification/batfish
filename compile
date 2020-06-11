@@ -1,2 +1,3 @@
 init-snapshot benchmarks/FatTrees/sp4 tr-fat8
-get compile doData="false", file="sp4", doNodeFaults="false", singlePrefix="false"
+get compile doData="false", file="sp4_smt", doNodeFaults="false", singlePrefix="true"
+get compile doData="false", file="sp4_sim", doNodeFaults="false", singlePrefix="false"
