@@ -406,13 +406,13 @@ class TransferFunctionBuilder {
         p.debug("If");
         If i = (If) stmt;
 
+        p.debug("guard uncompiled: " + i.getGuard().toString());
         // Create new false/true leafs to capture nesting of ifs.
         Node<Boolean> tleafFresh = new Node<>(true, p, _isExport);
         Node<Boolean> fleafFresh = new Node<>(false, p, _isExport);
         DecisionTree<Boolean> guard =
             exprToTree(i.getGuard(), p, tleafFresh, fleafFresh);
 
-        p.debug("guard uncompiled: " + i.getGuard().toString());
         List<Statement> statementsFall;
 
         statementsFall = new ArrayList<>(i.getFalseStatements());

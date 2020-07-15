@@ -1,7 +1,11 @@
 echo "init-snapshot $1 tr-compile-$1
-get compile singlePrefix=\"false\", doNextHop=\"false\"" >> command
+get compile singlePrefix=\"false\", doNextHop=\"true\", file=\"$2\"" >> command
 
-allinone -cmd command > $2
+
+echo "init-snapshot $1 tr-compile-$1
+get compile singlePrefix=\"false\", doNextHop=\"true\", file=\"$2\""
+
+
+allinone -cmd command
 rm command
-sh sanitize.sh $2
-
+#sh sanitize.sh $2

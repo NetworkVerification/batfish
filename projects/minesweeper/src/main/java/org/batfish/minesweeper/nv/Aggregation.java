@@ -37,6 +37,8 @@ public class Aggregation {
   public Aggregation(Graph _graph, Set<Prefix> _originatedPrefixes) {
     this._graph = _graph;
     this._originatedPrefixes = _originatedPrefixes;
+    this._aggregates = new HashMap<>();
+    this._suppressedAggregates = new HashMap<>();
 
     computeAggregates();
     computeSuppressedAggregates();

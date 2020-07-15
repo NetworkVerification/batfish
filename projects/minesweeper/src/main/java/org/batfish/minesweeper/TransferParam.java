@@ -147,7 +147,7 @@ public class TransferParam<T extends IDeepCopy<T>> {
   }
 
   public void debug(String str) {
-    if (_debug) {
+    if (true) {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < _indent; i++) {
         sb.append("    ");

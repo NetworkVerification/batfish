@@ -134,12 +134,15 @@ public class TreeCompiler {
         }
       }
 
+      System.out.println("PrefixRange: " + acc);
+
       return ("(" + acc + ")");
 
     } else if (e instanceof NamedPrefixSet) {
       NamedPrefixSet x = (NamedPrefixSet) e;
       String name = x.getName();
       RouteFilterList fl = conf.getRouteFilterLists().get(name);
+      System.out.println("NamedPrefixSet: " + matchFilterList(fl,other));
       return matchFilterList(fl, other);
 
     } else {
@@ -228,7 +231,7 @@ public class TreeCompiler {
   }
 
   private void debug(String msg) {
-    //System.out.println(msg);
+    System.out.println(msg);
   }
 
   private String compute(BooleanExpr expr, Environment env, boolean isExport) {

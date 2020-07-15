@@ -318,8 +318,8 @@ public class NVCompiler {
                               + "                   " + impPolicies.get(idx).getFirst() + ")\n")
                           .append("         (bgpRouteImport (fun prot b ->\n")
                           .append("               " + impPolicies.get(idx).getSecond() + ")) x \n");
+                          importString.append("     in\n");
                       }
-                      importString.append("     in\n");
                     }
                     importString.append("     x\n\n");
 
