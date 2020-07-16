@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
 import org.batfish.datamodel.routing_policy.expr.MatchPrefixSet;
 import org.batfish.minesweeper.utils.Tuple;
 
@@ -143,9 +144,83 @@ public class DecisionTree<T> {
 
   public void optimize() {
     optimizeAux(_root);
+    removeDuplicatesAux(_root, new HashSet<>(), new HashSet<>());
   }
 
 
+
+  /* Traverses the tree and if a BooleanExpr condition is seen twice then it removes the second occurrence
+     simplifying the tree structure and the resulting condition.
+     trueSet keeps track of the nodes (expressions) that are true in this part of the tree
+     and falseSet does the same for false expressions.
+     NOTE: There is a "problem" with this function. Batfish expressions that may end up being the same
+     in NV, are not the same as Batfish expressions (e.g., NamedPrefixSet vs PrefixSet). In this sense,
+     it's not optimal.
+   */
+  private void removeDuplicatesAux(Node<T> t, Set<BooleanExpr> trueSet, Set<BooleanExpr> falseSet) {
+
+    if (t == null) {
+      return ;
+    }
+
+    // If the condition of t has already been chosen as true
+    if (t.getExpr() != null && trueSet.contains(t.getExpr())) {
+      // Replace t with it's right child.
+
+      // Keep a copy
+      Node<T> tright = t.getRight();
+
+      // Always copy parents list for safety...
+      List<Tuple<Node<T>, Boolean>> parents = new ArrayList<>();
+      if (t.getParents() != null) {
+        parents.addAll(t.getParents());
+      }
+      int sz = parents.size();
+      for (int i = 0; i < sz; i++) {
+        Tuple<Node<T>, Boolean> ps = parents.get(i);
+        ps.getFirst().setChild(t.getRight(),ps.getSecond());
+      }
+
+      // Call recursively.
+      removeDuplicatesAux(tright, trueSet, falseSet);
+      removeDuplicatesAux(t.getLeft(), trueSet, falseSet);
+    }
+
+    // Respectively for false
+    if (t.getExpr() != null && falseSet.contains(t.getExpr())) {
+      // Replace t with it's left child.
+
+      // Keep a copy
+      Node<T> tleft = t.getLeft();
+
+      // Always copy parents list for safety...
+      List<Tuple<Node<T>, Boolean>> parents = new ArrayList<>();
+      if (t.getParents() != null) {
+        parents.addAll(t.getParents());
+      }
+      int sz = parents.size();
+      for (int i = 0; i < sz; i++) {
+        Tuple<Node<T>, Boolean> ps = parents.get(i);
+        ps.getFirst().setChild(t.getLeft(),ps.getSecond());
+      }
+
+      // Call recursively
+      removeDuplicatesAux(t.getRight(), trueSet, falseSet);
+      removeDuplicatesAux(t.getLeft(), trueSet, falseSet);
+    }
+
+    //Otherwise do not replace anything and call recursively
+    // But first update true and false sets.
+    Set<BooleanExpr> newTrueSet= new HashSet<BooleanExpr>();
+    newTrueSet.add(t.getExpr());
+    newTrueSet.addAll(trueSet);
+    removeDuplicatesAux(t.getRight(), newTrueSet, falseSet);
+
+    Set<BooleanExpr> newFalseSet= new HashSet<BooleanExpr>();
+    newFalseSet.add(t.getExpr());
+    newFalseSet.addAll(falseSet);
+    removeDuplicatesAux(t.getLeft(), trueSet, newFalseSet);
+  }
 
   private void printTreeParentsAux (Node<T> head, int i) {
     if (_leafs.contains(head)) {

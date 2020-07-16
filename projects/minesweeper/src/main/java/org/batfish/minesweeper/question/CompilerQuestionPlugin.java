@@ -5,9 +5,6 @@ import com.google.auto.service.AutoService;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.batfish.common.Answerer;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.common.plugin.Plugin;
@@ -18,7 +15,6 @@ import org.batfish.minesweeper.nv.CompilerOptions;
 import org.batfish.minesweeper.nv.CompilerOptions.NVFlags;
 import org.batfish.minesweeper.nv.CompilerResult;
 import org.batfish.minesweeper.nv.NVCompiler;
-import org.batfish.minesweeper.utils.Tuple;
 import org.batfish.question.QuestionPlugin;
 
 @AutoService(Plugin.class)
@@ -49,21 +45,25 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
 
       NVCompiler c = new NVCompiler(_batfish, q.getFile() + "_control.nv", flags);
       CompilerResult f = c.compile(q.getSinglePrefix());
-      writeFile(q.getFile() + "_control.nv", f.getControlPlane());
+      String cpComment = "(* models bgp, ospf, static routes" +
+                        (flags.doNextHop() ? ", nexthop" : "") +
+                      (flags.doOrigin() ? ", route-origin" : "") + " *)\n\n";
+      writeFile(q.getFile() + "_control.nv", f.getControlPlane(), cpComment);
       if (flags.doDataplane()) {
-        writeFile(q.getFile() + "_data.nv", f.getDataPlane());
+        writeFile(q.getFile() + "_data.nv", f.getDataPlane(), "");
       }
       if (flags.doNodeFaults()) {
-        writeFile(q.getFile() + "_nodeFaults.nv", f.getAllNodeFaults());
+        writeFile(q.getFile() + "_nodeFaults.nv", f.getAllNodeFaults(), "");
       }
 
       return new StringAnswerElement();
     }
 
-    private void writeFile(String name, String contents) {
+    private void writeFile(String name, String contents, String comments) {
       try {
         File file = new File(name);
         FileWriter fileWriter = new FileWriter(file);
+        fileWriter.write(comments);
         fileWriter.write(contents);
         fileWriter.flush();
         fileWriter.close();

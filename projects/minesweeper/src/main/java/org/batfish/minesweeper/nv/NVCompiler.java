@@ -511,7 +511,7 @@ public class NVCompiler {
                 .append("     | _ -> x0.bgp\n")
                 .append("   in\n");
             }
-            sb.append("     (match b with\n")
+            sb.append("      (match b with\n")
               .append("      | None -> None\n")
               .append("      | Some b ->\n");
             if (_flags.doNextHop()) {
@@ -568,7 +568,7 @@ public class NVCompiler {
                 sb.append("         (match b with\n")
                     .append("         | None -> None\n")
                     .append("         | Some b ->\n")
-                    .append("           " + impPolicy + ")\n");
+                    .append("           " + impPolicy + "))\n");
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
