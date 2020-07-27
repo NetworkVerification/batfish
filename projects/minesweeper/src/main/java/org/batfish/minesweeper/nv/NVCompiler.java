@@ -811,6 +811,9 @@ public class NVCompiler {
     // All prefixes originated
     Set<Prefix> allPrefixes = new HashSet<>();
 
+    // Prefixes originated by just one router.
+    Set<Prefix> routerPrefixes = new HashSet<>();
+
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration conf = entry.getValue();
@@ -825,6 +828,7 @@ public class NVCompiler {
       staticPrefixes = staticPrefixes == null ? new HashSet<>() : staticPrefixes;
       ospfPrefixes = ospfPrefixes == null ? new HashSet<>() : ospfPrefixes;
       bgpPrefixes = bgpPrefixes == null ? new HashSet<>() : bgpPrefixes;
+
 
       allPrefixes.addAll(connPrefixes);
       allPrefixes.addAll(staticPrefixes);
@@ -858,14 +862,17 @@ public class NVCompiler {
         }
         Boolean b = bgpPrefixes.contains(prefix);
 
-        InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
-        Set<Prefix> prefixS = new HashSet<Prefix>();
-        prefixS.add(prefix);
-        if (attributePrefixMap.containsKey(a)) {
-          prefixS.addAll(attributePrefixMap.get(a));
-          attributePrefixMap.replace(a, prefixS);
-        } else {
-          attributePrefixMap.put(a, prefixS);
+        // Only compute an attribute if at least one protocol announces a route.
+        if ((c || s || (o.isPresent()) || b)) {
+          InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
+          Set<Prefix> prefixS = new HashSet<Prefix>();
+          prefixS.add(prefix);
+          if (attributePrefixMap.containsKey(a)) {
+            prefixS.addAll(attributePrefixMap.get(a));
+            attributePrefixMap.replace(a, prefixS);
+          } else {
+            attributePrefixMap.put(a, prefixS);
+          }
         }
       }
 

@@ -46,7 +46,7 @@ public class Dataplane {
         .append("  let dst = p.dstIp in\n");
 
     for (int i = 32; i >= 0; i--) {
-      sb.append("  (match getFwd (rib[(" + NVLang.mkBitAnd("dst", (Math.round(Math.pow(2,i)) - 1) + "") + "," + i +"u5)]) with\n")
+      sb.append("  (match getFwd (rib[(" + NVLang.mkBitAnd("dst", (Math.round(Math.pow(2,i)) - 1) + "") + "," + i +"u6)]) with\n")
         .append("  | Some None -> false\n")
         .append("  | Some (Some nexthop) -> edge = nexthop\n")
         .append("  | None -> ");
@@ -92,7 +92,7 @@ public class Dataplane {
       String filter = NVLang.mkAnd(filterLPM, filterAcls);
 
       sb.append("  | " + edge.getValue() + " ->\n")
-          .append(NVLang.mkFilter("(fun p -> " + NVLang.mkNot(filter), "ps"))
+          .append(NVLang.mkFilter("fun p -> " + NVLang.mkNot(filter), "ps"))
           .append("\n");
     }
 

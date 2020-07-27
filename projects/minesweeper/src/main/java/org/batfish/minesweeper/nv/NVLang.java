@@ -161,7 +161,7 @@ public final class NVLang {
   }
 
   public static String mkFilter(String pred, String x) {
-    return "(filter " + pred + " " + x + ")";
+    return "(filter " + "(" + pred + ") " + x + ")";
   }
 
 
