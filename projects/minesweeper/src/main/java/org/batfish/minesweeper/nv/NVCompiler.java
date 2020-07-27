@@ -811,8 +811,6 @@ public class NVCompiler {
     // All prefixes originated
     Set<Prefix> allPrefixes = new HashSet<>();
 
-    // Prefixes originated by just one router.
-    Set<Prefix> routerPrefixes = new HashSet<>();
 
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
@@ -829,11 +827,16 @@ public class NVCompiler {
       ospfPrefixes = ospfPrefixes == null ? new HashSet<>() : ospfPrefixes;
       bgpPrefixes = bgpPrefixes == null ? new HashSet<>() : bgpPrefixes;
 
+      // Prefixes originated by just one router.
+      Set<Prefix> routerPrefixes = new HashSet<>();
 
-      allPrefixes.addAll(connPrefixes);
-      allPrefixes.addAll(staticPrefixes);
-      allPrefixes.addAll(ospfPrefixes);
-      allPrefixes.addAll(bgpPrefixes);
+      routerPrefixes.addAll(connPrefixes);
+      routerPrefixes.addAll(staticPrefixes);
+      routerPrefixes.addAll(ospfPrefixes);
+      routerPrefixes.addAll(bgpPrefixes);
+
+
+      allPrefixes.addAll(routerPrefixes);
 
       Map<Prefix, Long> ospfAreaIds = new HashMap<>();
       OspfProcess ospf = getFirstOspfProcess(conf.getDefaultVrf());
@@ -853,7 +856,8 @@ public class NVCompiler {
       // Building init function
       Map<InitialAttribute, Set<Prefix>> attributePrefixMap = new HashMap<>();
 
-      for (Prefix prefix : allPrefixes) {
+      // Only compute an attribute if at least one protocol announces a route.
+      for (Prefix prefix : routerPrefixes) {
         Boolean c = connPrefixes.contains(prefix);
         Boolean s = staticPrefixes.contains(prefix);
         Optional<Long> o = Optional.empty();
@@ -862,8 +866,6 @@ public class NVCompiler {
         }
         Boolean b = bgpPrefixes.contains(prefix);
 
-        // Only compute an attribute if at least one protocol announces a route.
-        if ((c || s || (o.isPresent()) || b)) {
           InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
           Set<Prefix> prefixS = new HashSet<Prefix>();
           prefixS.add(prefix);
@@ -873,7 +875,6 @@ public class NVCompiler {
           } else {
             attributePrefixMap.put(a, prefixS);
           }
-        }
       }
 
       /* This induces a large repetition of code but it's ok for now */
