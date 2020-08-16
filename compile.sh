@@ -1,9 +1,9 @@
 echo "init-snapshot $1 tr-compile-$1
-get compile singlePrefix=\"false\", doNextHop=\"true\", doData=\"true\", file=\"$2\"" >> command
+get compile singlePrefix=\"false\", doNextHop=\"false\", doData=\"false\", file=\"$2\"" >> command
 
 
 echo "init-snapshot $1 tr-compile-$1
-get compile singlePrefix=\"false\", doNextHop=\"true\", doData=\"true\", file=\"$2\""
+get compile singlePrefix=\"false\", doNextHop=\"false\", doData=\"false\", file=\"$2\""
 
 
 allinone -cmd command
