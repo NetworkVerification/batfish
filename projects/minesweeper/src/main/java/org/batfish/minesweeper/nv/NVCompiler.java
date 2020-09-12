@@ -176,16 +176,21 @@ public class NVCompiler {
                   new TransferFunctionBuilder(config, statements, edge, true);
               DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
 
-              // Normalize the tree if we want to export for simulation.
-              exportTransBuilder.normalize(exportTree);
-              // Apply some basic optimizations
-              exportTree.optimize();
+
+            // Apply some basic optimizations
+              //exportTree.optimize();
+
 
               /* Build NV string that corresponds to export tree */
-              TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
-              List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
+            TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
 
-              StringBuilder exportString = new StringBuilder();
+            List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
+
+
+
+
+
+            StringBuilder exportString = new StringBuilder();
               int numberOfPolicies = expPolicies.size();
 
               // Add aggregation explicitly.
@@ -298,8 +303,8 @@ public class NVCompiler {
                   DecisionTree<Boolean> importTree = importTransBuilder.compute();
 
                   // Should only do this for Simulator, but leaving out smt for now.
-                  importTransBuilder.normalize(importTree);
-                  importTree.optimize();
+                  //importTransBuilder.normalize(importTree);
+                  //importTree.optimize();
 
                   TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
                   List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
@@ -525,10 +530,6 @@ public class NVCompiler {
                 true);
             DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
 
-            // Normalize the tree if we want to export for simulation.
-            if (!singlePrefix) {
-              exportTransBuilder.normalize(exportTree);
-            }
             // Apply some basic optimizations
             exportTree.optimize();
             /* Build NV string that corresponds to export tree */

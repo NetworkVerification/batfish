@@ -58,6 +58,7 @@ import org.batfish.datamodel.routing_policy.statement.Statement;
 import org.batfish.datamodel.routing_policy.statement.Statements.StaticStatement;
 import org.batfish.minesweeper.CommunityVar;
 import org.batfish.minesweeper.GraphEdge;
+import org.batfish.minesweeper.Protocol;
 import org.batfish.minesweeper.TransferParam;
 import org.batfish.minesweeper.TransferParam.CallContext;
 import org.batfish.minesweeper.utils.Tuple;
@@ -864,6 +865,8 @@ class TransferFunctionBuilder {
       for (Node<Boolean> leaf : t.getLeafs()) {
         Environment env = leaf.getEnv().getData();
         env.set_cost(env.get_cost() + " + 1");
+        // Local-Preference is not exported, so set it to default value if it's an export.
+        env.set_lp("100");
       }
     }
   }
@@ -936,158 +939,4 @@ class TransferFunctionBuilder {
     return t;
   }
 
-  private void swap(Node<Boolean> pre, DecisionTree<Boolean> t) {
-    // We created copies so if the following holds something went wrong.
-    if (pre.getParents().size() > 1)
-    {
-      throw new BatfishException("Should have a single parent, but has" + pre.getParents().size());
-    }
-
-    // get the unique parent of pre.
-    Tuple<Node<Boolean>, Boolean> parent = pre.getParents().get(0);
-    Node<Boolean> v1 = parent.getFirst();
-    Boolean lr = parent.getSecond();
-
-
-    // Keep pointers to children of pre and v.
-    Node<Boolean> pl = pre.getLeft();
-    Node<Boolean> pr = pre.getRight();
-
-    // one of these point to pre.
-    Node<Boolean> vl = v1.getLeft();
-    Node<Boolean> vr = v1.getRight();
-
-    /*System.out.println("pre:" + pre);
-    System.out.println("v1:" + v1);
-    System.out.println("pl:" + pl);
-    System.out.println("pl parents:" + pl.getParents());
-    System.out.println("pre parents");
-    pre.getParents().forEach(p -> System.out.println(p));
-*/
-
-    // Make a copy of v1, v1 will be the left child of pre, v2 the right.
-    Node<Boolean> v2 = new Node<>(v1.getExpr(), v1.getEnv(), v1.getExport());
-
-    // Update the children of v1 and v2 to null for now.
-    // This will also remove v1,v2 from any the parents of vl,vr.
-    v1.setChild(null, false);
-    v1.setChild(null, true);
-    v2.setChild(null, false);
-    v2.setChild(null, true);
-
-    //Update the parents of pre to those of v1 if any.
-    pre.setParents(null);
-    if (v1.getParents() != null) {
-      //System.out.println("v1 parents");
-      //v1.getParents().forEach(p -> System.out.println(p));
-      List<Tuple<Node<Boolean>, Boolean>> vparents = new LinkedList<>();
-      vparents.addAll(v1.getParents());
-      for (Tuple<Node<Boolean>, Boolean> vparent : vparents) {
-        vparent.getFirst().setChild(pre, vparent.getSecond());
-      }
-      //System.out.println("pre parents");
-      //pre.getParents().forEach(p -> System.out.println(p));
-    }
-    else {
-      t.setRoot(pre);
-    }
-
-    //System.out.println("just before nulling parents");
-    //System.out.println("pl:" + pl);
-    //System.out.println("pl parents:" + pl.getParents());
-    // v1 and v2 should have null parents.
-    assert(v1.getParents().isEmpty());
-    assert(v2.getParents().isEmpty());
-    v1.setParents(null);
-    v2.setParents(null);
-
-    // Set the children of pre to v1 and v2.
-    pre.setChild(v1, false);
-    pre.setChild(v2, true);
-
-    // Set the children of v1 and v2.
-    v1.setChild(lr ? vl : pl, false);
-    v1.setChild(lr ? pl : vr, true);
-    v2.setChild(lr ? vl : pr, false);
-    v2.setChild(lr ? pr : vr, true);
-  }
-
-  /* Finds a candidate node to swap */
-  @Nullable
-  private Node<Boolean> findCandidate(DecisionTree<Boolean> t) {
-    // Add all prefix expression nodes to a new set to modify while iterating.
-    Set<Node<Boolean>> preNodes = new HashSet<>();
-    preNodes.addAll(t.getPrefixNodes());
-
-    // Iterate over the prefix nodes
-    Iterator<Node<Boolean>> iter = preNodes.iterator();
-    while (iter.hasNext()) {
-      Node<Boolean> pre = iter.next();
-
-      // Get the parents of the prefix node.
-      List<Tuple<Node<Boolean>, Boolean>> parents = pre.getParents();
-      int sz = (parents != null) ? parents.size() : 0; // if it's zero it's root so that's ok.
-
-      // If it has one parent and it is not a prefix node then return that candidate.
-      if (sz == 1 && !t.getPrefixNodes().contains(parents.get(0).getFirst())) {
-        return pre;
-      }
-      // If the node has more than 1 parents
-      else if (sz > 1) {
-        Node<Boolean> result = pre;
-        // then if it has a parent that is not a prefix expression
-        boolean hasV = false;
-        for (Tuple<Node<Boolean>, Boolean> parent : parents) {
-          // Check that it is also a prefix node
-          if (!preNodes.contains(parent.getFirst())) {
-            hasV = true;
-            break;
-          }
-        }
-
-        // we need to break it up (ideally not completely, but now we are breaking it up completely).
-        if (hasV) {
-          List<Tuple<Node<Boolean>, Boolean>> parentsCopy = new ArrayList<>();
-          parentsCopy.addAll(parents);
-         // System.out.println("FindCandidate PreNode parents:");
-          //parents.forEach(p -> System.out.println(p.toString()));
- /*         System.out.println("parents parents:");
-          try {
-            System.out.println("parents of " + parentsCopy.get(0));
-          parentsCopy.get(0).getFirst().getParents().forEach(p -> System.out.println(p.toString()));
-} catch (NullPointerException e ) { ;} */
-          for (int i = 1; i < sz; i++) {
-            // Make a copy of it
-            Node<Boolean> preCopy = new Node<>(pre.getExpr(), pre.getEnv(), pre.getExport());
-            preCopy.setParents(null);
-            Tuple<Node<Boolean>, Boolean> parent = parentsCopy.get(i);
-            parent.getFirst().setChild(preCopy, parent.getSecond());
-            if (!preNodes.contains(parent.getFirst())) {
-              result = preCopy;
-            }
-          //  System.out.println("parents of " + parent);
-           // parent.getFirst().getParents().forEach(p -> System.out.println(p.toString()));
-            //add the children of pre as children of precopy.
-            preCopy.setChild(pre.getLeft(), false);
-            preCopy.setChild(pre.getRight(), true);
-
-            // Add this node to the list of prefix nodes and to all nodes.
-            t.getPrefixNodes().add(preCopy);
-            t.getAllNodes().add(preCopy);
-          }
-          return result;
-        }
-      }
-    }
-    return null;
-  }
-
-
-  public void normalize(DecisionTree<Boolean> t) {
-    Node<Boolean> pre = findCandidate(t);
-    while (pre != null) {
-      swap(pre, t);
-      pre = findCandidate(t);
-    }
-  }
 }

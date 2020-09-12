@@ -154,6 +154,10 @@ public class Node<T> {
     this._env = env;
   }
 
+  public boolean isLeaf() {
+    return this._right == null && this._left == null;
+  }
+
   @Override public boolean equals(Object obj) {
     return (this == obj) || ((obj instanceof Node) &&
             (this._left == ((Node) obj)._left) &&

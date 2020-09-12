@@ -4,11 +4,11 @@ import static org.batfish.minesweeper.CommunityVarCollector.collectCommunityVars
 import static org.batfish.minesweeper.bdd.CommunityVarConverter.toCommunityVar;
 import static org.batfish.minesweeper.nv.ast.NVExpBuilder.isFalse;
 import static org.batfish.minesweeper.nv.ast.NVExpBuilder.mkAnd;
+import static org.batfish.minesweeper.nv.ast.NVExpBuilder.mkBool;
 import static org.batfish.minesweeper.nv.ast.NVExpBuilder.mkIf;
 import static org.batfish.minesweeper.nv.ast.NVExpBuilder.mkNot;
 import static org.batfish.minesweeper.nv.ast.NVExpBuilder.mkOr;
 
-import com.google.common.collect.Iterables;
 import com.microsoft.z3.BoolExpr;
 import com.microsoft.z3.Context;
 import com.microsoft.z3.Solver;
@@ -16,7 +16,12 @@ import com.microsoft.z3.Status;
 import com.microsoft.z3.Tactic;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import org.batfish.common.BatfishException;
 import org.batfish.datamodel.CommunityList;
@@ -233,14 +238,15 @@ public class TreeCompiler {
     throw new BatfishException("TODO: match community set");
   }
 
-  private String computeReturn(TransferParam<Environment> p) {
+  /* Compute the route returned based on the current environment */
+  private String computeReturn(TransferParam<Environment> p, boolean isExport) {
     Environment data = p.getData();
     if (!data.get_valid()) return "None";
     // Compute updates for each field separately
     String ad = (data.get_ad().equals("b.bgpAd") ? "" :
                 "bgpAd= " + data.get_ad() + "; ");
     String lp = (data.get_lp().equals("b.lp") ? "" :
-                "lp= " + data.get_lp() + "; ");
+      "lp= " + data.get_lp() + "; ");
     String aslen = (data.get_cost().equals("b.aslen") ? "" :
                 "aslen= " + data.get_cost() + "; ");
     String med = (data.get_med().equals("b.med") ? "" :
@@ -282,11 +288,16 @@ public class TreeCompiler {
       Set<RoutingProtocol> rps = mp.getProtocols();
 
       // Hack: We need to do a disjunction of MatchProtocol with multiple arguments.
-      // Only does first protocol in the set.
-      RoutingProtocol rp = Iterables.getFirst(rps, null);
-      Protocol proto = rp == null ? null : Protocol.fromRoutingProtocol(rp);
+      Protocol proto = null;
+      Iterator<RoutingProtocol> rp = rps.iterator();
+
+      while (proto == null && rp.hasNext()) {
+        proto = Protocol.fromRoutingProtocol(rp.next());
+      }
+//      RoutingProtocol rp = Iterables.getFirst(rps, null);
+//      Protocol proto = rp == null ? null : Protocol.fromRoutingProtocol(rp);
       if (proto == null) {
-        debug("MatchProtocol(" + (rp != null ? rp.protocolName() : null) + "): false");
+        debug("MatchProtocol(" + rps + "): false");
         return new BoolExp(false);
       }
 
@@ -325,108 +336,170 @@ public class TreeCompiler {
     throw new BatfishException(msg);
   }
 
-  private Exp treeToNV(Node<Boolean> p, int i) {
+
+  private Map<Exp,Exp> treeToNVExp(Node<Boolean> p) {
+    /* If node p is a leaf then there are no prefix constraints on it (so the key of the map is set
+       to a true expression), and the value of the map is a String with the current environment.
+       NOTE: We use a string expression because we don't have classes to model the full NV language
+     */
+
+    Map<Exp, Exp> result = new HashMap<>();
+
+    if (p.isLeaf()) {
+      result.put(mkBool(true), new ExpAsString(computeReturn(p.getEnv(), p.getExport())));
+    }
+    /* If node p is a prefix node then compute the maps of the left and right child
+       and add the appropriate condition to each of them.
+     */
+    else if (p.getExpr() != null && p.getExpr() instanceof MatchPrefixSet) {
+      // Since this is a decision node both children must not be null - otherwise something is wrong
+      assert (p.getLeft() != null && p.getRight() != null);
+      Map<Exp, Exp> left = treeToNVExp(p.getLeft());
+      Map<Exp, Exp> right = treeToNVExp(p.getRight());
+
+      // Compute the condition for p
+      Exp guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
+
+      for (Entry<Exp,Exp> l : left.entrySet()) {
+        // For left sub-tree, the condition will be ~p /\ l.key
+        result.put(mkAnd(mkNot(guard), l.getKey()), l.getValue());
+      }
+
+      for (Entry<Exp,Exp> r : right.entrySet()) {
+        // For left sub-tree, the condition will be p /\ r.key
+        result.put(mkAnd(guard, r.getKey()), r.getValue());
+      }
+    }
+    /* Otherwise if p is another conditional node (not on the prefix) we compute the left and
+       right cases and then combine them pointwise. For instance, if the condition is f
+       and we get maps {cl1 -> vl1, ~cl1 -> vl2} and {cr1 -> vr1, ~cr1 -> vr2} we compute:
+       {cr1 /\ cl1 -> if f then vr1 else vl1, cr1 /\ ~cl1 -> if f then vr1 else vl2,
+        ~cr1 /\ cl1 -> if then vr2 else vl1, ~cr1 /\ ~cl1 -> if f then vr2 else vl2}
+        TODO: I need to make a correctness argument for this.
+     */
+    else {
+      // Since this is a decision node both children must not be null - otherwise something is wrong
+      assert (p.getLeft() != null && p.getRight() != null);
+      Map<Exp, Exp> left = treeToNVExp(p.getLeft());
+      Map<Exp, Exp> right = treeToNVExp(p.getRight());
+
+      Exp guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
+
+      // Combine piecewise
+      for (Entry<Exp,Exp> r : right.entrySet()) {
+        for (Entry<Exp,Exp> l : left.entrySet()) {
+          result.put(mkAnd(r.getKey(),l.getKey()), mkIf(guard, r.getValue(), l.getValue()));
+        }
+      }
+    }
+    return result;
+  }
+
+  /* Compiles the policy to a list of string tuples, where the first string is the
+    condition on the prefix and the second string is the value returned, i.e.
+    per-prefix policy.
+  */
+  public List<Tuple<String, String>> toNvStrings () {
+    /* Traverse the tree from root and produce an NV program */
+    Node<Boolean> head = _tree.getRoot();
+
+    Map<Exp,Exp> m = treeToNVExp(head);
+
+    List<Tuple<String, String>> result = new LinkedList<>();
+    for (Entry<Exp, Exp> e : m.entrySet()) {
+      // If the entry is not refutable then add it to the list.
+      if (!refuteViaSmt(e.getKey())) {
+        result.add(new Tuple<>(e.getKey().toString(), e.getValue().toString()));
+      }
+    }
+    return result;
+  }
+
+
+  /*** For Single Prefix ***/
+
+
+  /* Traverse the tree and build NV expressions of the policy. Used when we don't need to separate
+     between prefix and non-prefix expressions.
+     The pathCondition variable is used as an optimization; it keeps track of the prefix conditions
+     to reach this point in the execution and uses SMT to eliminate any path that may be impossible.
+     The representation we get from Batfish often has paths that are implausible based on the given
+     prefix conditions.
+   */
+  private Exp treeToNV(Node<Boolean> p, Exp pathCondition, int i) {
     if (p.getLeft() == null && p.getRight() == null) {
       //System.out.println("Leaf: " + computeReturn(p.getEnv()));
-      return new ExpAsString(computeReturn(p.getEnv()));
+      return new ExpAsString(computeReturn(p.getEnv(), p.getExport()));
     }
     else {
       // If it's not a leaf then it's a branching point.
-      Exp guard;
+      Exp guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
       Exp l;
       Exp r;
+
+      Exp rightPc = pathCondition;
+      Exp leftPc = pathCondition;
+
+      // If it's a prefix expression then we will add it to the path condition
+      if (p.getExpr() != null && p.getExpr() instanceof MatchPrefixSet) {
+        // Modify the path conditions for the right and left paths.
+        rightPc = mkAnd(guard, pathCondition);
+        leftPc = mkAnd(mkNot(guard), pathCondition);
+
+        // If the current PC and the current expression are impossible, then this expression cannot hold
+        // so return the left sub-tree. Add the negation of the current expression to the PC.
+        if (refuteViaSmt(rightPc)) {
+          return treeToNV(p.getLeft(), leftPc, i+1);
+        }
+
+        // Likewise for the negation of the current expression.
+        if (refuteViaSmt(leftPc)) {
+          return treeToNV(p.getRight(), rightPc, i+1);
+        }
+      }
+
+
+      // Otherwise, if it's not a prefix expression.
+
       // Specialize the and case
       if ((p.getRight().getLeft() != null) && (p.getRight().getLeft() == p.getLeft())) {
         Node<Boolean> pr = p.getRight();
         guard = mkAnd(
-            compute(p.getExpr(), p.getEnv().getData(), p.getExport()),
+            guard,
             compute(pr.getExpr(), pr.getEnv().getData(), pr.getExport()));
-        l = treeToNV(p.getLeft(), i + 1);
-        r = treeToNV(pr.getRight(), i + 1);
+        l = treeToNV(p.getLeft(), leftPc, i + 1);
+        r = treeToNV(pr.getRight(), rightPc, i + 1);
       }
       // specialize the or case
       else if ((p.getLeft().getRight() != null) && (p.getLeft().getRight() == p.getRight())){
         Node<Boolean> pl = p.getLeft();
         guard = mkOr(
-            compute(p.getExpr(), p.getEnv().getData(), p.getExport()),
+            guard,
             compute(pl.getExpr(), pl.getEnv().getData(), pl.getExport()));
-        l = treeToNV(pl.getLeft(), i + 1);
-        r = treeToNV(p.getRight(), i + 1);
+        l = treeToNV(pl.getLeft(), leftPc, i + 1);
+        r = treeToNV(p.getRight(), rightPc, i + 1);
       }
       else {
-        guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
-        //System.out.println("Left child: ");
-        l = treeToNV(p.getLeft(), i + 1);
-        //System.out.println("Right child: ");
-        r = treeToNV(p.getRight(), i + 1);
+        l = treeToNV(p.getLeft(), leftPc,  i + 1);
+        r = treeToNV(p.getRight(), rightPc,i + 1);
       }
       return mkIf(guard, r, l);
     }
   }
 
-  // TODO: implement AND-OR optimizations.
-  private List<Tuple<Exp, Node<Boolean>>> doChild(Exp guard, Node<Boolean> p) {
-    if (p.getExpr() != null && p.getExpr() instanceof MatchPrefixSet) {
-      List<Tuple<Exp, Node<Boolean>>> lst = treeToList(p);
-      int sz = lst.size();
-      for (int idx = 0; idx < sz; idx++) {
-        Tuple<Exp,Node<Boolean>> elt = lst.get(idx);
-        lst.set(idx, new Tuple<>(mkAnd(guard, elt.getFirst()), elt.getSecond()));
-      }
-      return lst;
-    }
-    else {
-      List<Tuple<Exp, Node<Boolean>>> res = new ArrayList<>();
-      res.add(new Tuple<>(guard, p));
-      return res;
-    }
-  }
-  /* This function is used to compile the prefix-related nodes. It returns a list of
-      string (the compiled prefix conditions) and trees/nodes that are the value-related nodes that
-      apply to these prefixes and are to be compiled.
+  /* Compiles the policy to a single string, i.e. we don't "separate" between conditionals on prefix.
    */
-  private List<Tuple<Exp, Node<Boolean>>> treeToList(Node<Boolean> p) {
-    Exp guard = compute(p.getExpr(), p.getEnv().getData(), p.getExport());
-    List<Tuple<Exp, Node<Boolean>>> lstTrue = doChild(guard, p.getRight());
-    List<Tuple<Exp, Node<Boolean>>> lstFalse = doChild(mkNot(guard), p.getLeft());
-    lstTrue.addAll(lstFalse);
-    return lstTrue;
-  }
-
-  /* Use for BDD-based simulator */
-  public List<Tuple<String, String>> toNvStrings () {
-    /* Traverse the tree from root and produce an NV program */
-    Node<Boolean> head = _tree.getRoot();
-    List<Tuple<String, String>> results = new ArrayList<>();
-    if (head.getExpr() != null && head.getExpr() instanceof MatchPrefixSet) {
-      // The first element of this tuple is the conditions on the key of the map (i.e., the prefix)
-      // TODO: This is what we want to optimize the Exp of funs.
-      List<Tuple<Exp, Node<Boolean>>> funs = treeToList(head);
-      int sz = funs.size();
-      for (int i = 0; i < sz; i++) {
-        Tuple<Exp, Node<Boolean>> fn = funs.get(i);
-        if (!refuteViaSmt(fn.getFirst())) {
-          results.add(new Tuple<>(fn.getFirst().toString(),treeToNV(fn.getSecond(), 2).toString()));
-        }
-//        results.add(i, new Tuple<>(fn.getFirst().toString(),treeToNV(fn.getSecond(), 2).toString()));
-      }
-      return results;
-    }
-    else {
-      results.add(new Tuple<>("", treeToNV(head, 2).toString()));
-      return results;
-    }
-  }
-
   public String toNvString () {
     /* Traverse the tree from root and produce an NV program */
     //System.out.println("Traversing tree");
     Node<Boolean> head = _tree.getRoot();
-    return treeToNV(head, 2).toString();
+    return treeToNV(head, mkBool(true),2).toString();
 
   }
 
-
+  /* Checks if the given expression is unsatisfiable using SMT.
+     Returns true if so.
+   */
   private boolean refuteViaSmt(Exp e) {
     _solver.reset();
     _solver.add((BoolExpr) e.toSmt(_ctx));
@@ -435,3 +508,5 @@ public class TreeCompiler {
   }
 
 }
+
+

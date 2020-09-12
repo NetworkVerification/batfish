@@ -2,6 +2,7 @@ package org.batfish.minesweeper.nv;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -109,7 +110,7 @@ public class DecisionTree<T> {
 
   private void printTreeAux (Node<T> head, int i) {
     if (_leafs.contains(head)) {
-      System.out.println("Leaf: " + head.getData() + "," + head + " @ " + i + " with " + head.getEnv().getData().toString() + "," + head.getEnv().getData().get_communities());
+      System.out.println("Leaf: " + head.getData() + "," + head + " @ " + i + " with " + head.getEnv().getData().toString());
     } else
     {
       System.out.println("Expr, Node: " + head.getExpr() + "," + head + " " + i);
@@ -143,10 +144,60 @@ public class DecisionTree<T> {
   }
 
   public void optimize() {
+    splitNodes(this);
     optimizeAux(_root);
     removeDuplicatesAux(_root, new HashSet<>(), new HashSet<>());
   }
 
+
+  /* Split nodes s.t. they have a single parent */
+  private void splitNode(DecisionTree<T> t, Node<T> pre) {
+
+    List<Tuple<Node<T>, Boolean>> parents = pre.getParents();
+
+    if (parents == null) {
+      return ;
+    }
+
+    List<Tuple<Node<T>, Boolean>> parentsCopy = new ArrayList<>(parents);
+
+    Node<T> l = pre.getLeft();
+    Node<T> r = pre.getRight();
+    // t.getPrefixNodes().remove(pre);
+    // t.getAllNodes().remove(pre);
+
+    int sz = parents.size();
+
+    /* NOTE: Starting from 1 assuming that 0 does not need to be copied, just move its parents */
+    for (int i = 1; i < sz; i++) {
+      // Make a copy of the node.
+      Node<T> preCopy = new Node<>(pre.getExpr(), pre.getEnv(), pre.getExport());
+      preCopy.setParents(null);
+
+      // replace the parents child with the copy.
+      Tuple<Node<T>, Boolean> parent = parentsCopy.get(i);
+      parent.getFirst().setChild(preCopy, parent.getSecond());
+
+      // parent.getFirst().getParents().forEach(p -> System.out.println(p.toString()));
+      //add the children of pre as children of precopy.
+      preCopy.setChild(l, false);
+      preCopy.setChild(r, true);
+
+      // Add this node to the list of prefix nodes and to all nodes.
+      if (t.getPrefixNodes().contains(pre)) {
+        t.getPrefixNodes().add(preCopy);
+      }
+      t.getAllNodes().add(preCopy);
+    }
+  }
+
+  private void splitNodes(DecisionTree<T> t) {
+    Set<Node<T>> ts = new HashSet<>(t.getAllNodes());
+    Iterator<Node<T>> i = ts.iterator();
+    while (i.hasNext()) {
+      splitNode(t, i.next());
+    }
+  }
 
 
   /* Traverses the tree and if a BooleanExpr condition is seen twice then it removes the second occurrence
@@ -156,8 +207,11 @@ public class DecisionTree<T> {
      NOTE: There is a "problem" with this function. Batfish expressions that may end up being the same
      in NV, are not the same as Batfish expressions (e.g., NamedPrefixSet vs PrefixSet). In this sense,
      it's not optimal.
+     NOTE: This requires to have splitted the nodes first, otherwise the result is wrong!
+     TODO: I am not sure this works, maybe set compares pointers only.
    */
   private void removeDuplicatesAux(Node<T> t, Set<BooleanExpr> trueSet, Set<BooleanExpr> falseSet) {
+
 
     if (t == null) {
       return ;
@@ -206,7 +260,7 @@ public class DecisionTree<T> {
 
       // Call recursively
       removeDuplicatesAux(t.getRight(), trueSet, falseSet);
-      removeDuplicatesAux(t.getLeft(), trueSet, falseSet);
+      removeDuplicatesAux(tleft, trueSet, falseSet);
     }
 
     //Otherwise do not replace anything and call recursively

@@ -5,7 +5,8 @@ import com.microsoft.z3.Context;
 import com.microsoft.z3.Expr;
 import java.util.Objects;
 
-class IfThenElseExp extends Exp {
+public class IfThenElseExp extends Exp {
+
   public Exp guard;
   public Exp trueBranch;
   public Exp falseBranch;
@@ -37,6 +38,18 @@ class IfThenElseExp extends Exp {
 
   @Override public int hashCode() {
     return Objects.hash(guard, trueBranch, falseBranch);
+  }
+
+  public Exp getGuard() {
+    return guard;
+  }
+
+  public Exp getTrueBranch() {
+    return trueBranch;
+  }
+
+  public Exp getFalseBranch() {
+    return falseBranch;
   }
 
 

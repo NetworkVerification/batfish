@@ -1,10 +1,10 @@
 package org.batfish.minesweeper.nv.ast;
 
-import com.microsoft.z3.Context;
-import com.microsoft.z3.Solver;
-import com.microsoft.z3.Status;
-import com.microsoft.z3.Tactic;
-import org.batfish.common.BatfishException;
+
+
+/* Helper functions used to build NV expressions. It's recommended to use these functions instead of
+   the constructors directly, as they implement various optimizations too.
+ */
 
 public final class NVExpBuilder {
 
@@ -14,6 +14,10 @@ public final class NVExpBuilder {
 
   public static boolean isFalse(Exp e) {
     return ((e instanceof BoolExp)) && !((BoolExp) e).getValue();
+  }
+
+  public static Exp mkBool(Boolean b) {
+    return (new BoolExp(b));
   }
 
   public static Exp mkNot(Exp x) {
@@ -39,6 +43,9 @@ public final class NVExpBuilder {
     if (isFalse(r) || isFalse(l)) {
       return new BoolExp(false);
     }
+    if (r.equals(l)) {
+      return r;
+    }
     return new BinaryBoolExp(BinaryBoolOp.AND, l, r);
   }
 
@@ -51,6 +58,9 @@ public final class NVExpBuilder {
     }
     if (isTrue(r) || isTrue(l)) {
       return new BoolExp(true);
+    }
+    if (r.equals(l)) {
+      return r;
     }
     return new BinaryBoolExp(BinaryBoolOp.OR, l, r);
   }
@@ -76,6 +86,22 @@ public final class NVExpBuilder {
     }
     if (g.equals(f)) {
       return mkAnd(g, t);
+    }
+    /* Because this case seems to happen often we special-case it.
+       if g then
+         if g then
+           e1
+         else
+           e2
+        else e3 ~>
+        if g then e1
+        else e3
+     */
+    if (t instanceof IfThenElseExp) {
+      IfThenElseExp texpr = (IfThenElseExp) t;
+      if (texpr.getGuard().equals(g)) {
+        return mkIf(g, texpr.getTrueBranch(), f);
+      }
     }
     return new IfThenElseExp(g, t, f);
   }

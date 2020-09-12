@@ -1,5 +1,5 @@
 echo "init-snapshot $1 tr-compile-$1
-get compile singlePrefix=\"false\", doNextHop=\"false\", doData=\"false\", file=\"$2\"" >> command
+get compile singlePrefix=\"true\", doNextHop=\"true\", doData=\"false\", file=\"$2\"" >> command
 
 
 echo "init-snapshot $1 tr-compile-$1
