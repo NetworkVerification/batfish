@@ -9,9 +9,13 @@ public class CompilerOptions {
     dataplane,
     nexthop,
     origin,
-    nodeFaults
+    nodeFaults,
+    asPath,
+    boundedLinkFaults,
+    multiPath,
   }
 
+  private int _faultsBound;
   private Set<NVFlags> flags;
 
   public CompilerOptions() {
@@ -45,4 +49,15 @@ public class CompilerOptions {
     return flags.contains(NVFlags.nodeFaults);
   }
 
+  public boolean doASPath () {
+    return flags.contains(NVFlags.asPath);
+  }
+
+  public boolean doBoundedLinkFaults () { return flags.contains(NVFlags.boundedLinkFaults); }
+
+  public boolean doMultiPath () { return flags.contains(NVFlags.multiPath); }
+
+  public int getLinkFaultsBound () { return _faultsBound;}
+
+  public void setLinkFaultsBound (int x) { _faultsBound = x;}
 }

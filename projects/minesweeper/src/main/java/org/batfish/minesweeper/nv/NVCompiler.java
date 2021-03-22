@@ -2,9 +2,11 @@ package org.batfish.minesweeper.nv;
 
 import static org.batfish.minesweeper.Graph.getFirstOspfProcess;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -25,6 +27,16 @@ import org.batfish.minesweeper.GraphEdge;
 import org.batfish.minesweeper.Protocol;
 import org.batfish.minesweeper.collections.Table2;
 import org.batfish.minesweeper.utils.Tuple;
+
+/* Assumptions.
+* 1. So far we do not model iBGP, hence our BGP routes do not include IGP/EGP modifier.
+* 2. For multipath we always assume that multipath-as-relax is enabled for BGP. Also the number of
+*    equivalent paths is always ignored
+* 3. We do not model AS PATH string; we do model AS PATH as a set that is useful to detect loops.
+*    Note however, that this AS PATH will only correspond to one route when multipath is enabled
+*    hence loops may still occur (this is how BGP works in practice too I think).
+* */
+
 
 class InitialAttribute {
   private Boolean _conn;
@@ -51,7 +63,7 @@ class InitialAttribute {
       o = attrs.buildOspfAttribute("110u8", "0u16", "ospfIntraArea",  _areaId.get().toString(), "None", node + "n");
     }
     String b = _bgp ?
-        attrs.buildBgpAttribute("100","20u8","0","80","{}","None", node + "n") : "None";
+        attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", node + "n", "{}", "0") : "None";
     // String b = _bgp ? "Some (20, 100, 0, 80)" : "None";
     sb.append("    let c = ")
         .append(c)
@@ -102,6 +114,9 @@ public class NVCompiler {
   private Graph _graph;
   private Map<GraphEdge, String> _edgeMap;
   private Map<String, Integer> _nodeAssignment;
+  private ArrayList<LinkedList<Integer>> _adj; //Adjacency list for nv edges;
+
+  private Set<Prefix> _originated; // Originated BGP and OSPF prefixes
 
   // Filename of the main network file, i.e. most likely the one describing the control plane.
   private String _filename;
@@ -115,6 +130,7 @@ public class NVCompiler {
     _attrs = new Attributes(flags);
     _edgeMap = new HashMap<>();
     _nodeAssignment = new HashMap<>();
+    _originated = new HashSet<>();
     _filename = filename;
   }
 
@@ -218,7 +234,7 @@ public class NVCompiler {
                 }
                 exportString.append(") then ")
                     .append("{v with bgp= ")
-                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}","None", "getSourceNode e"))
+                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"))
                     .append(" else None\n")
                     .append("      | Some _ -> v) x in\n");
 
@@ -355,14 +371,14 @@ public class NVCompiler {
       if (protocols.contains(Protocol.CONNECTED)) {
         // Default bgp attribute for connected
         redistributedRoutes.put(Protocol.CONNECTED, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}","None", "getSourceNode e"));
+            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"));
       }
       else { redistributedRoutes.put(Protocol.CONNECTED, "None"); }
 
       //TODO: Nexthop and origin might need to be different.
       if (protocols.contains(Protocol.STATIC)) {
         redistributedRoutes.put(Protocol.STATIC, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}","None", "getSourceNode e"));
+            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"));
       }
       else { redistributedRoutes.put(Protocol.STATIC, "None"); }
 
@@ -378,114 +394,53 @@ public class NVCompiler {
             "80",
             "{}",
             "o.ospfNextHop",
-            "o.ospfOrigin") +")";
+            "o.ospfOrigin", "{}", "1") +")"; //TODO: adjust multiPath when we implement it for OSPF
         redistributedRoutes.put(Protocol.OSPF, bospf);
       }
       else {redistributedRoutes.put(Protocol.OSPF, "None");}
       return redistributedRoutes;
     }
 
-  // Just to make my life easier making it separately now, but do it for single prefix too.
-  private void bgpTransAllPrefixes(StringBuilder sb, Map<GraphEdge, String> edgeMap,
-      Table2<String, Protocol, Set<Protocol>> redistributionTable, Aggregation agg) {
-    sb.append("(* Bgp import policy for a single route *)\n")
-        .append("(* Import policies typically set local pref, apply import filters, etc *)\n")
-        .append("let bgpRouteImport policy x =\n")
-        .append("  match x.bgp with\n")
-        .append("  | None -> {x with bgp=None}\n")
-        .append("  | Some b ->\n")
-        .append("    {x with bgp=policy x.selected b}\n\n");
-
-    sb.append("(* Bgp export policy for a single route.\n"
-        + " policy: the export routing policy\n"
-        + " redistribute: redistribution into BGP"
-        + " x: the route (single RIB entry) over which this operates *)\n")
-        .append("let bgpRouteExport e policy redistribute x =\n")
-        .append("  match redistribute x with\n")
-        .append("  | None -> {x with bgp=None}\n")
-        .append("  | Some b ->\n");
-
-    if (_flags.doNextHop()) {
-      sb.append("    let b = {b with bgpNextHop = flipEdge e} in\n");
-    }
-
-    sb.append("    {x with bgp=policy x.selected b}\n\n");
-
-    sb.append("(* Each bgpExportPol applies actions to zero or more prefix ranges.\n")
-      .append("   For each range, we do a mapIf with a predicate specifying the range,\n")
-      .append("   then apply whatever logic we're configured to apply for that range.\n")
-      .append("   We then apply a final mapIf for all prefixes not covered so far. If\n")
-      .append("   There's only one policy for all prefixes, we don't do a mapIf at all. *)\n\n");
-
-    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
-        computeEquivalentPolicies(sb, redistributionTable, agg);
-
-    sb.append(" let transferBgp e x =");
-
-    StringBuilder sbBgp = new StringBuilder();
-    Set<String> bgpSet = new HashSet<>();
-    for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
-      String router = entry.getKey();
-      Configuration config = entry.getValue();
-      for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
-        if (edge.getPeer() != null) {
-          if (_graph.isEdgeUsed(config, Protocol.BGP, edge)
-              && !bgpSet.contains(_edgeMap.get(edge))) {
-            bgpSet.add(_edgeMap.get(edge));
-            String expPolicy = policies.getFirst().get(edge);
-            sbBgp.append("   | ")
-                .append(_edgeMap.get(edge))
-                .append(" ->\n")
-                .append("     let x = " + expPolicy + " e x in\n");
-
-            // Do import policy now
-            GraphEdge invEdge = _graph.getOtherEnd().get(edge);
-            String impPolicy = policies.getSecond().get(invEdge);
-            if (impPolicy == null) {
-              sbBgp.append("     x\n");
-            } else {
-              sbBgp.append("    " + impPolicy + " x\n");
-            }
-          }
-        }
-      }
-    }
-
-    if (sbBgp.length() == 0 ) {
-      sb.append(" map (fun v -> {v with bgp = None}) x\n");
+    /* Set BGP multiPath and nextHop in an attribute of the transfer function */
+  private void bgpNextHop(StringBuilder sb) {
+    if (_flags.doMultiPath()) {
+      sb.append("        let b = {b with bgpNextHop = {flipEdge e}; bgpMultiPath = 1;} in\n");
     }
     else {
-      sb.append("\n  match e with\n");
-      sb.append(sbBgp);
+    sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
     }
   }
 
   /***** BGP Transfer Function for Single Prefix ****/
-  private void bgpTrans(boolean singlePrefix, StringBuilder sb, Map<GraphEdge, String> edgeMap,
+  private void bgpTrans(StringBuilder sb, Map<GraphEdge, String> edgeMap,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
 
-    sb.append(" let transferBgp e x0 =\n");
+    sb.append(" let transferBgp d e x0 =\n");
 
     // Get the origin of the route if model requires it.
     /*if (_flags.doOrigin()) {
       sb.append("  match e with | u~v ->");
     }*/
 
-      sb.append("  let (prefix, prefixLen) = d in\n")
-        .append("let prot = x0.selected in\n") // Very much a hack, there's almost certainly a better way to do this
-        .append(" match e with\n");
+    boolean headerCodeEmitted = false;
 
 
     Set<String> bgpSet = new HashSet<>();
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
+
       // Compute redistribution of other protocols into BGP for this router
       Map<Protocol, String> redistAttrs = redistributeIntoBgp("x0", redistributionTable, router);
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
-          Interface iface = edge.getStart();
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
+            if (!headerCodeEmitted) {
+              sb.append("  let (prefix, prefixLen) = d in\n")
+                  .append("let prot = x0.selected in\n") // Very much a hack, there's almost certainly a better way to do this
+                  .append(" match e with\n");
+              headerCodeEmitted = true;
+            }
             bgpSet.add(_edgeMap.get(edge));
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
             List<Statement> statements;
@@ -519,8 +474,11 @@ public class NVCompiler {
             sb.append("      (match b with\n")
               .append("      | None -> None\n")
               .append("      | Some b ->\n");
+            if (_flags.doASPath()) {
+              sb.append("        if (let (u~v) = e in b.bgpAS[v]) then None else\n");
+            }
             if (_flags.doNextHop()) {
-              sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
+              bgpNextHop(sb);
             }
 
             // Build the decision tree for the export policy
@@ -535,12 +493,20 @@ public class NVCompiler {
             /* Build NV string that corresponds to export tree */
             TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
 
-            String impPolicy = "b";
+            String impPolicy = "Some b";
             String expPolicy = exportTreeCompiler.toNvString();
             sb.append("     let b = \n")
               .append("           " + expPolicy + "\n")
                 .append("     in\n");
 
+            // match for import
+          sb.append("         (match b with\n")
+                .append("         | None -> None\n")
+                .append("         | Some b ->\n");
+            if (_flags.doASPath()) {
+              sb.append ("           let (u~v) = e in\n")
+                  .append("           let b = {b with bgpAS = b.bgpAS[u := true]} in\n");
+            }
             // Do import policy
             List<Statement> importStatements;
 
@@ -566,23 +532,22 @@ public class NVCompiler {
 
                 TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
                 impPolicy = importTreeCompiler.toNvString();
-                sb.append("         (match b with\n")
-                    .append("         | None -> None\n")
-                    .append("         | Some b ->\n")
-                    .append("           " + impPolicy + "))\n");
+                // Add node to AS path if option is enabled.
+                    sb.append("           " + impPolicy + "))\n");
                 //policyTree = importTransBuilder.compute(exportTree);
                 //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
               }
-              else { sb.append("      " + impPolicy + ")\n"); }
+              else { sb.append("      " + impPolicy + "))\n"); }
             }
-            else { sb.append("      " + impPolicy + ")\n"); }
+            else { sb.append("      " + impPolicy + "))\n"); }
           }
         }
       }
     }
-    if (singlePrefix) {
-      sb.append("\n\n");
+    if (!headerCodeEmitted) {
+      sb.append(" None");
     }
+      sb.append("\n\n");
   }
 
 
@@ -604,7 +569,7 @@ public class NVCompiler {
         //        sb.append("None\n");
         // }
         if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(_edgeMap.get(edge))) {
-          String o = _attrs.buildOspfAttribute("o.ad","o.weight +u16 " + cost +"u16",
+          String o = _attrs.buildOspfAttribute("o.ospfAd","o.weight +u16 " + cost +"u16",
               "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
               areaId.toString(), "flipEdge edge", "o.ospfOrigin");
           ospfSet.add(_edgeMap.get(edge));
@@ -675,13 +640,31 @@ public class NVCompiler {
         .append("  else if o2.areaType <u2 o1.areaType then false\n")
         .append("  else if o1.weight <=u16 o2.weight then true else false\n\n");
 
+    sb.append("let mergeOption f x y =\n")
+        .append("  match (x,y) with\n")
+        .append("  | (None, _) -> y")
+        .append("  | (_, None) -> x\n")
+        .append("  | (Some a, Some b) -> Some (f a b)\n\n");
+
     sb.append("(* BGP Route ranking: first compare local pref, then path length, then MED *)\n")
-        .append("let betterBgp b1 b2 =\n")
-        .append("  if b1.lp > b2.lp then true\n")
-        .append("  else if b2.lp > b1.lp then false\n")
-        .append("  else if b1.aslen < b2.aslen then true\n")
-        .append("  else if b2.aslen < b1.aslen then false\n")
-        .append("  else if b1.med <= b2.med then true else false\n\n");
+        .append("let betterBgp multiPath b1 b2 =\n")
+        .append("  if b1.lp > b2.lp then b1\n")
+        .append("  else if b2.lp > b1.lp then b2\n")
+        .append("  else if b1.aslen < b2.aslen then b1\n")
+        .append("  else if b2.aslen < b1.aslen then b2\n")
+        .append("  else if b1.med < b2.med then b1\n")
+        .append("  else if b1.med > b2.med then b2\n");
+
+        if (_flags.doMultiPath()) {
+          if (_flags.doNextHop()){
+            sb.append("  else if multiPath then {b1 with bgpMultiPath=b1.bgpMultiPath + b2.bgpMultiPath;\n"
+                +     "                             bgpNextHop=b1.bgpNextHop union b2.bgpNextHop}\n")
+                .append("  else {b1 with bgpMultiPath=b1.bgpMultiPath}\n\n");
+          } else {
+            sb.append("  else if multiPath then {b1 with bgpMultiPath=b1.bgpMultiPath + b2.bgpMultiPath}\n"
+                +     "  else b1\n\n");
+          }
+        }
 
     sb.append("(* Determine which of the four protocols has the best route by comparing their ADs *)\n")
         .append("let best c s o b =\n")
@@ -702,7 +685,7 @@ public class NVCompiler {
         .append("  let c = if (pickMinOption x.connected y.connected) then x.connected else y.connected in\n")
         .append("  let s = if (pickMinOption x.static y.static) then x.static else y.static in\n")
         .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
-        .append("  let b = if (pickOption betterBgp x.bgp y.bgp) then x.bgp else y.bgp in\n")
+        .append("  let b = mergeOption x.bgp y.bgp in\n")
         .append("  { connected = c;\n"
             +   "    static = s;\n"
             +   "    ospf = o;\n"
@@ -710,13 +693,52 @@ public class NVCompiler {
             +   "    selected = best c s o b}\n\n");
 
     /* Merge one attribute or combine over map */
-    if (singlePrefix) {
-      sb.append("let merge node x y = mergeValues x y\n\n");
-    } else {
-      sb.append("let merge node x y = combine mergeValues x y\n\n");
-    }
 
+    // If multipath is enabled then do a match depending on whether a router has enabled multiPath or not.
+    // TODO: we should seperate the boolean for multi path depending on OSPF or BGP multipath.
+    if (_flags.doMultiPath()) {
+      if (singlePrefix) {
+        sb.append("let merge node x y =\n");
+
+        StringBuilder sbMultiPath = new StringBuilder();
+        boolean allMultiPath = true;
+        boolean allSinglePath = true;
+        for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
+          String router = entry.getKey();
+          Integer u = _nodeAssignment.get(router);
+          Configuration config = entry.getValue();
+          if (config.getDefaultVrf().getBgpProcess().getMultipathEbgp()) {
+            allSinglePath = false;
+            sbMultiPath.append("  | " + u + "n -> mergeValues true x y\n");
+          } else {
+            allMultiPath = false;
+            sbMultiPath.append("  | " + u + "n -> mergeValues false x y\n");
+          }
+        }
+        if (allMultiPath) {
+          sb.append("  mergeValues true x y\n");
+        } else if (allSinglePath) {
+          sb.append("  mergeValues false x y\n");
+        } else {
+          sb.append("  match node with\n").append(sbMultiPath);
+        }
+
+      } else {
+        sb.append("let merge node x y = combine mergeValues x y\n\n");
+      }
+    }
+    else {
+      if (singlePrefix) {
+        sb.append("let merge node x y = mergeValues false x y\n");
+
+      } else {
+        sb.append("let merge node x y = combine mergeValues x y\n\n");
+      }
+    }
   }
+
+  //TODO: add multipath attribute to init and trans and the type, then implement union in probNv.
+
 
   private String compileTopology() {
     StringBuilder sb = new StringBuilder();
@@ -728,9 +750,22 @@ public class NVCompiler {
       i++;
     }
 
-    sb.append("let nodes = ").append(i).append("\n\n");
+    sb.append("let nodes = (").append(i).append(", {\n");
+
+    for (Entry<String, Integer> e : _nodeAssignment.entrySet()) {
+      sb.append("  ").append(e.getValue()).append("n:\"").append(e.getKey()).append("\";\n");
+    }
+
+    sb.append(" })\n\n");
 
     Set<String> edgeSet = new HashSet<>();
+
+    // Initialize adjacency list
+
+    _adj = new ArrayList<>();
+
+    for (int j=0; j<i; ++j)
+      _adj.add(j, new LinkedList<>());
 
     // Create the edge map of the network. We are currently ignoring hanging edges.
     // We should think how to represent those in the NV network. Perhaps, as an extra
@@ -745,11 +780,13 @@ public class NVCompiler {
         _edgeMap.put(edge, edgeString);
         if (!edgeSet.contains(edgeString)) {
           edgeSet.add(edgeString);
+          _adj.get(node1).add(node2);
           sb.append("  ").append(node1).append("-").append(node2).append("; (*" + edge.toString() + "*)\n");
         }
       }
     }
     sb.append("}\n\n");
+
 
     return sb.toString();
   }
@@ -764,9 +801,9 @@ public class NVCompiler {
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
-    if (singlePrefix) {
-      sb.append("symbolic d : prefix\n\n");
-    }
+//    if (singlePrefix) {
+//      sb.append("symbolic d : prefix\n\n");
+//    }
 
     sb.append("(** Useful helper definitions **)\n\n");
     sb.append("let ospfIntraArea = 0u2\n")
@@ -786,9 +823,9 @@ public class NVCompiler {
         .append("  | Some y -> x = y\n\n");
     // }
 
-    sb.append("let flipEdge e = \n")
-        .append("  match e with")
-        .append("  | a~b -> toEdge b a\n\n");
+//    sb.append("let flipEdge e = \n")
+//        .append("  match e with")
+//        .append("  | a~b -> toEdge b a\n\n");
 
 
     sb.append("let getSourceNode e = \n")
@@ -798,7 +835,7 @@ public class NVCompiler {
     // Print out merge function
     merge(singlePrefix, sb);
 
-    sb.append("let init node =\n");
+    sb.append("let init d node =\n");
 
     /* init depends on whether we do a single route or not */
     if (singlePrefix) {
@@ -836,6 +873,9 @@ public class NVCompiler {
       routerPrefixes.addAll(ospfPrefixes);
       routerPrefixes.addAll(bgpPrefixes);
 
+      // BGP/OSPF prefixes originated by any node
+      _originated.addAll(bgpPrefixes);
+      _originated.addAll(ospfPrefixes);
 
       allPrefixes.addAll(routerPrefixes);
 
@@ -925,17 +965,12 @@ public class NVCompiler {
     ospfTrans(singlePrefix,sb);
 
     // BGP transfer function
-    if (singlePrefix) {
-      bgpTrans(singlePrefix, sb, _edgeMap, redistributionTable.getRedistributedProtocols());
-    }
-    else {
-      bgpTransAllPrefixes(sb, _edgeMap, redistributionTable.getRedistributedProtocols(), agg);
-    }
+      bgpTrans(sb, _edgeMap, redistributionTable.getRedistributedProtocols());
 
     if (singlePrefix) {
-      sb.append("let trans edge x = \n")
+      sb.append("let trans d edge x = \n")
           .append("  let o = transferOspf edge x.ospf in\n")
-          .append("  let b = transferBgp edge x in\n")
+          .append("  let b = transferBgp d edge x in\n")
           .append("  {connected=None; static=None; ospf=o; bgp=b; selected=None}\n\n");
     }
     else {
@@ -944,8 +979,6 @@ public class NVCompiler {
           .append("  let x = map (fun x -> {x with ospf=transferOspf edge x.ospf; connected=None; static=None}) x in\n")
           .append("  x\n\n");
     }
-
-    sb.append("let sol = solution {init=init; trans=trans; merge=merge}\n\n");
 
     sb.append(topology);
     /* Print node assignments for usability reasons */
@@ -963,13 +996,20 @@ public class NVCompiler {
       Dataplane data = new Dataplane(_nodeAssignment, _edgeMap);
       dataplane = data.generateDataplane();
     }
-    String allFaults = "";
+    Tuple<String, Map<Prefix, String>> allFaults = null;
+    Tuple<String, Map<Prefix, String>> allLinkFaults = null;
+    Tuple<String, Map<Prefix, String>> boundedLinkFaults = null;
+    AllFaultsAnalysis faults = new AllFaultsAnalysis(_filename, _nodeAssignment, _edgeMap, _adj, _nodeAssignment.size(), _originated);
+
     if (_flags.doNodeFaults()) {
-      AllFaultsAnalysis faults = new AllFaultsAnalysis(_filename, _nodeAssignment, _edgeMap);
-      allFaults = faults.compileAllFaults(true, singlePrefix);
+      allFaults = faults.compileAllFaults(singlePrefix);
+      allLinkFaults = faults.compileAllLinkFaults(singlePrefix);
 
     }
-    return new CompilerResult(controlplane, dataplane, allFaults);
+    if (_flags.doBoundedLinkFaults()) {
+      boundedLinkFaults = faults.compiledBoundedLinkFaults(false, _flags.getLinkFaultsBound());
+    }
+    return new CompilerResult(controlplane, dataplane, allFaults, allLinkFaults, boundedLinkFaults);
   }
 
 }

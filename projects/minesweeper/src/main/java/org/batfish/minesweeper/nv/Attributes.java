@@ -15,7 +15,9 @@ public class Attributes {
         String _med,
         String _communities,
         String _nexthop,
-        String _origin) {
+        String _origin,
+        String _asSet,
+        String _multiPath) {
       String bgp =
           "Some {bgpAd="
               + _ad
@@ -29,6 +31,8 @@ public class Attributes {
             + _communities
             + (_flags.doOrigin() ? "; bgpOrigin=" + _origin : "")
             + (_flags.doNextHop() ? "; bgpNextHop=" + _nexthop : "")
+            + (_flags.doASPath() ? "; bgpAS=" + _asSet : "")
+            + (_flags.doMultiPath() ? "; bgpMultiPath=" + _multiPath : "")
             + "}";
     return bgp;
   }
@@ -56,10 +60,14 @@ public class Attributes {
   }
 
   public String buildBgpType() {
-    String bgp = "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];" +
-        (_flags.doOrigin() ? " bgpOrigin: tnode;" : "") +
-        (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : "") +
-        "}";
+    String bgp =
+        "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];"
+            + (_flags.doOrigin() ? " bgpOrigin: tnode;" : "")
+            + (_flags.doNextHop() && _flags.doMultiPath() ? " bgpNextHop: set[tedge];" :
+                          (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : ""))
+            + (_flags.doASPath() ? " bgpAS: set[tnode];" : "")
+            + (_flags.doMultiPath() ? " bgpMultiPath: int;" : "")
+            + "}";
     return bgp;
   }
 
