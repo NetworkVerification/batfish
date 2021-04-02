@@ -489,7 +489,7 @@ public class NVCompiler {
             DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
 
             // Apply some basic optimizations
-            exportTree.optimize();
+//            exportTree.optimize();
             /* Build NV string that corresponds to export tree */
             TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
 
@@ -646,7 +646,9 @@ public class NVCompiler {
         .append("  | (_, None) -> x\n")
         .append("  | (Some a, Some b) -> Some (f a b)\n\n");
 
-    sb.append("(* BGP Route ranking: first compare local pref, then path length, then MED *)\n")
+    sb.append("(* BGP Route ranking: first compare local pref, then path length, then MED. \n"
+        + "       If multipath is disabled then tie-break is arbitrary (normally, the router id should be used) *)\n")
+
         .append("let betterBgp multiPath b1 b2 =\n")
         .append("  if b1.lp > b2.lp then b1\n")
         .append("  else if b2.lp > b1.lp then b2\n")
@@ -665,6 +667,10 @@ public class NVCompiler {
                 +     "  else b1\n\n");
           }
         }
+        else {
+          // no multipath
+            sb.append("  else b1\n\n");
+        }
 
     sb.append("(* Determine which of the four protocols has the best route by comparing their ADs *)\n")
         .append("let best c s o b =\n")
@@ -681,11 +687,11 @@ public class NVCompiler {
         .append("      Some (if pickMinOption x y then p1 else p2)\n\n");
 
     sb.append("(* Compute the best route for each protocol individually, then select the best one *)\n")
-        .append("let mergeValues x y =\n")
+        .append("let mergeValues bgpMultiPathEnabled x y =\n")
         .append("  let c = if (pickMinOption x.connected y.connected) then x.connected else y.connected in\n")
         .append("  let s = if (pickMinOption x.static y.static) then x.static else y.static in\n")
         .append("  let o = if (pickOption betterOspf x.ospf y.ospf) then x.ospf else y.ospf in\n")
-        .append("  let b = mergeOption x.bgp y.bgp in\n")
+        .append("  let b = mergeOption (betterBgp bgpMultiPathEnabled) x.bgp y.bgp in\n")
         .append("  { connected = c;\n"
             +   "    static = s;\n"
             +   "    ospf = o;\n"
@@ -724,7 +730,7 @@ public class NVCompiler {
         }
 
       } else {
-        sb.append("let merge node x y = combine mergeValues x y\n\n");
+        sb.append("let merge node x y = combine mergeValues x y\n");
       }
     }
     else {
@@ -732,12 +738,13 @@ public class NVCompiler {
         sb.append("let merge node x y = mergeValues false x y\n");
 
       } else {
-        sb.append("let merge node x y = combine mergeValues x y\n\n");
+        sb.append("let merge node x y = combine mergeValues x y\n");
       }
     }
+    sb.append("\n");
   }
 
-  //TODO: add multipath attribute to init and trans and the type, then implement union in probNv.
+  //TODO: implement union in probNv.
 
 
   private String compileTopology() {
@@ -823,9 +830,9 @@ public class NVCompiler {
         .append("  | Some y -> x = y\n\n");
     // }
 
-//    sb.append("let flipEdge e = \n")
-//        .append("  match e with")
-//        .append("  | a~b -> toEdge b a\n\n");
+    sb.append("let flipEdge e = \n")
+        .append("  match e with")
+        .append("  | a~b -> toEdge b a\n\n");
 
 
     sb.append("let getSourceNode e = \n")

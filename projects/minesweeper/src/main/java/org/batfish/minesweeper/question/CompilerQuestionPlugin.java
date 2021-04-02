@@ -65,46 +65,54 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
                         (flags.doASPath() ? ", AS Path as set" : "") +
                         (flags.doMultiPath() ? ", multipath" : "") +
                       (flags.doOrigin() ? ", route-origin" : "") + " *)\n\n";
-      writeFile(q.getFile() + "_control.nv", f.getControlPlane(), cpComment);
+      writeFile(q.getFile(),q.getFile() + "_control.nv", f.getControlPlane(), cpComment);
       if (flags.doDataplane()) {
-        writeFile(q.getFile() + "_data.nv", f.getDataPlane(), "");
+        writeFile(q.getFile(),q.getFile() + "_data.nv", f.getDataPlane(), "");
       }
       if (flags.doNodeFaults()) {
         Tuple<String, Map<Prefix, String>> allNodeFaults = f.getAllNodeFaults();
         Tuple<String, Map<Prefix, String>> allLinkFaults = f.getAllLinkFaults();
-        writeFile(q.getFile() + "_nodeFaults.nv", allNodeFaults.getFirst(), "");
-        writeFile(q.getFile() + "_linkFaults.nv", allLinkFaults.getFirst(), "");
+        writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_nodeFaults.nv", allNodeFaults.getFirst(), "");
+        writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_linkFaults.nv", allLinkFaults.getFirst(), "");
 
         for (Entry<Prefix, String> e : allNodeFaults.getSecond().entrySet()) {
           Ip ip = e.getKey().getStartIp();
           int pre = e.getKey().getPrefixLength();
-          writeFile(q.getFile() + "_" + ip.toString() + "_" + pre + "_nodeFaults.nv", e.getValue(), "");
+          String prefixStr = ip.toString().replace('.','_') + "_" + pre;
+          writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_" + prefixStr + "_nodeFaults.nv", e.getValue(), "");
         }
 
         for (Entry<Prefix, String> e : allLinkFaults.getSecond().entrySet()) {
           Ip ip = e.getKey().getStartIp();
           int pre = e.getKey().getPrefixLength();
-          writeFile(q.getFile() + "_" + ip.toString() + "_" + pre + "_linkFaults.nv", e.getValue(), "");
+          String prefixStr = ip.toString().replace('.','_') + "_" + pre;
+          writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_" + prefixStr + "_linkFaults.nv", e.getValue(), "");
         }
 
       }
       if (flags.doBoundedLinkFaults()) {
         Tuple<String, Map<Prefix, String>> boundedLinkFaults = f.getBoundedLinkFaults();
-        writeFile(q.getFile() + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", boundedLinkFaults.getFirst(), "(* Bounded link faults *)\n\n");
+        writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", boundedLinkFaults.getFirst(), "(* Bounded link faults *)\n\n");
 
         for (Entry<Prefix, String> e : boundedLinkFaults.getSecond().entrySet()) {
           Ip ip = e.getKey().getStartIp();
           int pre = e.getKey().getPrefixLength();
-          writeFile(q.getFile() + "_" + ip.toString() + "_" + pre + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", e.getValue(), "(*Bounded link faults for prefix: " + e.getKey().toString() +" *)\n\n");
+          String prefixStr = ip.toString().replace('.','_') + "_" + pre;
+          writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + prefixStr + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", e.getValue(), "(*Bounded link faults for prefix: " + e.getKey().toString() +" *)\n\n");
         }
       }
 
       return new StringAnswerElement();
     }
 
-    private void writeFile(String name, String contents, String comments) {
+    private void writeFile(String folderName, String name, String contents, String comments) {
       try {
-        File file = new File(name);
+        File file = new File(folderName+"/"+name);
+        if (!file.getParentFile().exists()) {
+          file.getParentFile().mkdir();
+          file.getParentFile().setWritable(true, false);
+          file.getParentFile().getParentFile().setWritable(true, false);
+        }
         FileWriter fileWriter = new FileWriter(file);
         fileWriter.write(comments);
         fileWriter.write(contents);

@@ -136,7 +136,7 @@ public class AllFaultsAnalysis {
 /* All node failures */
   public Tuple<String, Map<Prefix, String>> compileAllFaults(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
-    sb.append("include \"" + _filename + "_control.nv" + "\"\n\n");
+    sb.append("include \"../" + _filename + "_control.nv" + "\"\n\n");
 
     //sb.append(createNodesSymbolics());
     createNodeSymbolicsBFS(sb, 0);
@@ -273,7 +273,7 @@ public class AllFaultsAnalysis {
   /* Code for all link failures analysis */
   public Tuple<String, Map<Prefix, String>>  compileAllLinkFaults(boolean singlePrefix) {
     StringBuilder sb = new StringBuilder();
-    sb.append("include \"" + _filename + "_control.nv" + "\"\n\n");
+    sb.append("include \"../" + _filename + "_control.nv" + "\"\n\n");
 
     //sb.append(createLinkSymbolics());
     createLinkSymbolicsBFS(sb, 0);
@@ -328,7 +328,7 @@ public class AllFaultsAnalysis {
 
   public Tuple<String, Map<Prefix, String>>  compiledBoundedLinkFaults(boolean singlePrefix, int bound) {
     StringBuilder sb = new StringBuilder();
-    sb.append("include \"" + _filename + "_control.nv" + "\"\n\n");
+    sb.append("include \"../" + _filename + "_control.nv" + "\"\n\n");
 
     //sb.append(createLinkSymbolics());
     createBoundedLinkSymbolics(sb, bound);
