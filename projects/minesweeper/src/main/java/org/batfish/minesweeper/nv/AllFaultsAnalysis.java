@@ -266,7 +266,7 @@ public class AllFaultsAnalysis {
 
     sb.append("\n");
     for (Entry<String, Integer> u : _nodes.entrySet()) {
-      sb.append("assert(\"reachability_").append(u.getKey()).append("\",").append("reachable " + u.getValue() + "n, 0.99p)\n");
+      sb.append("assert(\"reachability_").append(u.getKey()).append("\",").append("reachable " + u.getValue() + "n)\n");
     }
   }
 
@@ -311,19 +311,70 @@ public class AllFaultsAnalysis {
     return new Tuple<>(sb.toString(), faultsPerPrefix);
   }
 
+  private String boundedSymbolicName(int i) {
+    return "f" + i;
+  }
+
   private void createBoundedLinkSymbolics(StringBuilder sb, int bound) {
     for (int i = 0; i < bound; i++) {
-      sb.append("symbolic f" + i + " : tedge\n");
+      sb.append("symbolic " + boundedSymbolicName(i) + " : tedge\n");
     }
   }
 
   private String failureCondition(int bound) {
     StringBuilder sb = new StringBuilder();
-    sb.append("(f" + 0 + " = e)");
+    sb.append("(" + boundedSymbolicName(0) + " = e)");
     for (int i = 1; i < bound; i++) {
-      sb.append("|| (f" + i + " = e)");
+      sb.append("|| (" + boundedSymbolicName(i) + " = e)");
     }
     return sb.toString();
+  }
+
+  private String generateOrderingConstraints(int total) {
+    StringBuilder ord = new StringBuilder();
+
+    for (int j = 0; j < total-1; j++) {
+      ord.append("let ltf" + j + "_" + (j+1) + " = ").append(boundedSymbolicName(j) + " <e " + boundedSymbolicName(j+1) + "\n");
+      ord.append("let eqf" + j + "_" + (j+1) + " = ").append(boundedSymbolicName(j) + " = " + boundedSymbolicName(j+1) + "\n");
+    }
+
+    for (int i = 1; i <= total; i++) {
+      ord.append("let ord" + i + " = ");
+      for (int j = 0; j < i-1; j++) {
+        ord.append("ltf" + j + "_" + (j+1));
+        if (j + 1 < i-1) // add an and if there is another iteration
+          ord.append(" && ");
+      }
+
+//      total = 3. i = 1;
+         // j = 0 -> eq0_1 && j = 1 -> eq1_2
+      if (i-1 > 0) // add an && if there was an iteration
+        ord.append( " && ");
+      for (int j = i-1; j < total-1; j++) {
+        ord.append("eqf" + j + "_" + (j+1));
+        if (j + 1 < total-1)
+          ord.append(" && ");
+      }
+      ord.append("\n");
+    }
+    ord.append("\n");
+    return ord.toString();
+  }
+
+  private void generateBoundedReachabilityAssertion (StringBuilder sb, String solution, int bound) {
+    sb.append("let reachable u =\n"
+            + "  match " + solution + "[u].selected with | None -> false | _ -> true\n");
+
+    sb.append("\n");
+
+    sb.append(generateOrderingConstraints(bound));
+
+    for (Entry<String, Integer> u : _nodes.entrySet()) {
+      for (int i = 1; i <= bound; i++) {
+        sb.append("assert(\"reachability_").append(u.getKey()).append("\",").append("reachable " + u.getValue()
+                + "n | ord" + i + ")\n");
+      }
+    }
   }
 
   public Tuple<String, Map<Prefix, String>>  compiledBoundedLinkFaults(boolean singlePrefix, int bound) {
@@ -354,7 +405,7 @@ public class AllFaultsAnalysis {
           .append("let d = (" + pre.toString() + ")\n\n")
           .append("let linkFaults = solution(initLinkFaults d, transLinkFaults d, mergeLinkFaults)\n\n");
 
-      generateReachabilityAssertion(sbpre, "linkFaults");
+      generateBoundedReachabilityAssertion(sbpre, "linkFaults", bound);
       faultsPerPrefix.put(pre, sbpre.toString());
     }
 

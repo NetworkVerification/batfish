@@ -111,7 +111,11 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
         if (!file.getParentFile().exists()) {
           file.getParentFile().mkdir();
           file.getParentFile().setWritable(true, false);
-          file.getParentFile().getParentFile().setWritable(true, false);
+          try {
+            file.getParentFile().getParentFile().setWritable(true, false);
+          }
+          catch (NullPointerException e) {
+          }
         }
         FileWriter fileWriter = new FileWriter(file);
         fileWriter.write(comments);
