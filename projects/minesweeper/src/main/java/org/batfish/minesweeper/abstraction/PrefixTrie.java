@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.SortedSet;
 import javax.annotation.Nullable;
 import org.batfish.datamodel.Ip;
@@ -35,6 +37,13 @@ public class PrefixTrie implements Serializable {
     public Prefix getLongestPrefixMatch(Ip address) {
       long addressBits = address.asLong();
       return _root.getLongestPrefixMatch(address, addressBits, 0);
+    }
+
+    public List<Prefix> getLongestPrefixMatches(Ip address) {
+      long addressBits = address.asLong();
+      LinkedList<Prefix> acc = new LinkedList<>();
+      _root.getLongestPrefixMatches(address, addressBits, 0, acc);
+      return acc;
     }
   }
 
@@ -122,6 +131,28 @@ public class PrefixTrie implements Serializable {
         return longerMatch;
       }
     }
+
+    /* Returns a list of prefix matches starting from most specific to most general */
+    public void getLongestPrefixMatches(Ip address, long bits, int index, List<Prefix> acc) {
+      Prefix longestPrefixMatch = getLongestPrefixMatch(address);
+      if (longestPrefixMatch != null) {
+        acc.add(0, longestPrefixMatch);
+        }
+
+      if (index == Prefix.MAX_PREFIX_LENGTH) {
+        return;
+      }
+      boolean currentBit = Ip.getBitAtPosition(bits, index);
+      if (currentBit) {
+        if (_right != null) {
+          _right.getLongestPrefixMatches(address, bits, index + 1, acc);
+        }
+      } else {
+        if (_left != null) {
+          _left.getLongestPrefixMatches(address, bits, index + 1, acc);
+        }
+      }
+    }
   }
 
   private SortedSet<Prefix> _prefixes;
@@ -152,6 +183,10 @@ public class PrefixTrie implements Serializable {
 
   public Prefix getLongestPrefixMatch(Ip address) {
     return _trie.getLongestPrefixMatch(address);
+  }
+
+  public List<Prefix> getLongestPrefixMatches(Ip address) {
+    return _trie.getLongestPrefixMatches(address);
   }
 
   @JsonValue

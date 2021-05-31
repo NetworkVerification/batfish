@@ -57,6 +57,7 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
         flags.setFlag(NVFlags.boundedLinkFaults);
         flags.setLinkFaultsBound(((CompileQuestion) _question).getBoundedFaults());
       }
+      flags.setSymbolicOrder(((CompileQuestion) _question).getSymbolicOrder());
 
       NVCompiler c = new NVCompiler(_batfish, q.getFile(), flags);
       CompilerResult f = c.compile(q.getSinglePrefix());
@@ -72,21 +73,21 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
       if (flags.doNodeFaults()) {
         Tuple<String, Map<Prefix, String>> allNodeFaults = f.getAllNodeFaults();
         Tuple<String, Map<Prefix, String>> allLinkFaults = f.getAllLinkFaults();
-        writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_nodeFaults.nv", allNodeFaults.getFirst(), "");
-        writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_linkFaults.nv", allLinkFaults.getFirst(), "");
+        writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_nodeFaults_" + flags.getSymbolicOrder()  + ".nv", allNodeFaults.getFirst(), "");
+        writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_linkFaults_" + flags.getSymbolicOrder() + ".nv", allLinkFaults.getFirst(), "");
 
         for (Entry<Prefix, String> e : allNodeFaults.getSecond().entrySet()) {
           Ip ip = e.getKey().getStartIp();
           int pre = e.getKey().getPrefixLength();
           String prefixStr = ip.toString().replace('.','_') + "_" + pre;
-          writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_" + prefixStr + "_nodeFaults.nv", e.getValue(), "");
+          writeFile(q.getFile() + "/AllNodeFaults",q.getFile() + "_" + prefixStr + "_" + flags.getSymbolicOrder() + "_nodeFaults.nv", e.getValue(), "");
         }
 
         for (Entry<Prefix, String> e : allLinkFaults.getSecond().entrySet()) {
           Ip ip = e.getKey().getStartIp();
           int pre = e.getKey().getPrefixLength();
           String prefixStr = ip.toString().replace('.','_') + "_" + pre;
-          writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_" + prefixStr + "_linkFaults.nv", e.getValue(), "");
+          writeFile(q.getFile() + "/AllLinkFaults",q.getFile() + "_" + prefixStr + "_" + flags.getSymbolicOrder() + "_linkFaults.nv", e.getValue(), "");
         }
 
       }
@@ -94,12 +95,18 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
         Tuple<String, Map<Prefix, String>> boundedLinkFaults = f.getBoundedLinkFaults();
         writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", boundedLinkFaults.getFirst(), "(* Bounded link faults *)\n\n");
 
-        for (Entry<Prefix, String> e : boundedLinkFaults.getSecond().entrySet()) {
-          Ip ip = e.getKey().getStartIp();
-          int pre = e.getKey().getPrefixLength();
-          String prefixStr = ip.toString().replace('.','_') + "_" + pre;
-          writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + prefixStr + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", e.getValue(), "(*Bounded link faults for prefix: " + e.getKey().toString() +" *)\n\n");
-        }
+        if (!flags.doDataplane()) {
+          for (Entry<Prefix, String> e : boundedLinkFaults.getSecond().entrySet()) {
+            Ip ip = e.getKey().getStartIp();
+            int pre = e.getKey().getPrefixLength();
+            String prefixStr = ip.toString().replace('.', '_') + "_" + pre;
+            writeFile(
+                q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),
+                q.getFile() + "_" + prefixStr + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv",
+                e.getValue(),
+                "(*Bounded link faults for prefix: " + e.getKey().toString() + " *)\n\n");
+          }
+          }
       }
 
       return new StringAnswerElement();
@@ -142,6 +149,8 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_FILE = "file";
 
+    private static final String PROP_SYMBOLIC_ORDER = "symbolicOrder";
+
     private boolean _nextHop = false;
 
     private boolean _origin = false;
@@ -155,6 +164,8 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
     private boolean _doMultiPath = false;
 
     private int _doBoundedLinkFaults = 0;
+
+    private String _symbolicOrder = "default";
 
     private String _file = "";
 
@@ -227,6 +238,12 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
     public void setFile(String x) {
       this._file = x;
     }
+
+    @JsonProperty(PROP_SYMBOLIC_ORDER)
+    public String getSymbolicOrder () { return _symbolicOrder;}
+
+    @JsonProperty(PROP_SYMBOLIC_ORDER)
+    public void setSymbolicOrder (String x) { _symbolicOrder = x;}
 
     @Override
     public boolean getDataPlane() {

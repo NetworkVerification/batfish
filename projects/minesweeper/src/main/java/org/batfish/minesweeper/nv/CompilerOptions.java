@@ -16,6 +16,7 @@ public class CompilerOptions {
   }
 
   private int _faultsBound;
+  private String _symbolicOrder;
   private Set<NVFlags> flags;
 
   public CompilerOptions() {
@@ -60,4 +61,8 @@ public class CompilerOptions {
   public int getLinkFaultsBound () { return _faultsBound;}
 
   public void setLinkFaultsBound (int x) { _faultsBound = x;}
+
+  public String getSymbolicOrder () { return _symbolicOrder;}
+
+  public void setSymbolicOrder (String x) { _symbolicOrder = x;}
 }

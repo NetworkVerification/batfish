@@ -13,6 +13,8 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.GeneratedRoute;
@@ -116,7 +118,9 @@ public class NVCompiler {
   private Map<String, Integer> _nodeAssignment;
   private ArrayList<LinkedList<Integer>> _adj; //Adjacency list for nv edges;
 
-  private Set<Prefix> _originated; // Originated BGP and OSPF prefixes
+  private SortedSet<Prefix> _originated; // Originated BGP and OSPF prefixes
+  private SortedSet<Prefix> _hosts; // Originated prefixes belonging to hosts
+  private Map<Integer, Set<Prefix>> _perNodePrefixes; // associated a set of prefixes to every node.
 
   // Filename of the main network file, i.e. most likely the one describing the control plane.
   private String _filename;
@@ -130,7 +134,9 @@ public class NVCompiler {
     _attrs = new Attributes(flags);
     _edgeMap = new HashMap<>();
     _nodeAssignment = new HashMap<>();
-    _originated = new HashSet<>();
+    _originated = new TreeSet<>();
+    _hosts = new TreeSet<>();
+    _perNodePrefixes = new HashMap<>();
     _filename = filename;
   }
 
@@ -646,6 +652,10 @@ public class NVCompiler {
         .append("  | (_, None) -> x\n")
         .append("  | (Some a, Some b) -> Some (f a b)\n\n");
 
+    if ((_flags.doMultiPath()) && (_flags.doNextHop())) {
+      sb.append("let union s1 s2 = combine (fun x y -> x && y) s1 s2\n\n");
+    }
+
     sb.append("(* BGP Route ranking: first compare local pref, then path length, then MED. \n"
         + "       If multipath is disabled then tie-break is arbitrary (normally, the router id should be used) *)\n")
 
@@ -660,7 +670,7 @@ public class NVCompiler {
         if (_flags.doMultiPath()) {
           if (_flags.doNextHop()){
             sb.append("  else if multiPath then {b1 with bgpMultiPath=b1.bgpMultiPath + b2.bgpMultiPath;\n"
-                +     "                             bgpNextHop=b1.bgpNextHop union b2.bgpNextHop}\n")
+                +     "                             bgpNextHop= union b1.bgpNextHop b2.bgpNextHop}\n")
                 .append("  else {b1 with bgpMultiPath=b1.bgpMultiPath}\n\n");
           } else {
             sb.append("  else if multiPath then {b1 with bgpMultiPath=b1.bgpMultiPath + b2.bgpMultiPath}\n"
@@ -757,7 +767,7 @@ public class NVCompiler {
       i++;
     }
 
-    sb.append("let nodes = (").append(i).append(", {\n");
+    sb.append("nodes = (").append(i).append(", {\n");
 
     for (Entry<String, Integer> e : _nodeAssignment.entrySet()) {
       sb.append("  ").append(e.getValue()).append("n:\"").append(e.getKey()).append("\";\n");
@@ -778,7 +788,7 @@ public class NVCompiler {
     // We should think how to represent those in the NV network. Perhaps, as an extra
     // (or two, we used to say we need two but I don't remember why) node connected to all nodes
     // with hanging edges.
-    sb.append("let edges = {\n");
+    sb.append("edges = {\n");
     for (GraphEdge edge : _graph.getAllEdges()) {
       Integer node1 = _nodeAssignment.get(edge.getRouter());
       Integer node2 = _nodeAssignment.get(edge.getPeer());
@@ -856,7 +866,6 @@ public class NVCompiler {
     // All prefixes originated
     Set<Prefix> allPrefixes = new HashSet<>();
 
-
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration conf = entry.getValue();
@@ -871,6 +880,15 @@ public class NVCompiler {
       staticPrefixes = staticPrefixes == null ? new HashSet<>() : staticPrefixes;
       ospfPrefixes = ospfPrefixes == null ? new HashSet<>() : ospfPrefixes;
       bgpPrefixes = bgpPrefixes == null ? new HashSet<>() : bgpPrefixes;
+
+      /*NOTE: Just keeping track of the BGP and OSPF routes for now
+        Not sure all our configs have connected hosts to them, but it can be easily fixed if needed.
+      */
+      Set<Prefix> nodePrefixes = new HashSet<>();
+      nodePrefixes.addAll(ospfPrefixes);
+      nodePrefixes.addAll(bgpPrefixes);
+      _perNodePrefixes.put(nodeId, nodePrefixes);
+
 
       // Prefixes originated by just one router.
       Set<Prefix> routerPrefixes = new HashSet<>();
@@ -999,14 +1017,11 @@ public class NVCompiler {
   public CompilerResult compile(boolean singlePrefix){
     String controlplane = compileControlPlane(singlePrefix);
     String dataplane = "";
-    if (_flags.doDataplane()) {
-      Dataplane data = new Dataplane(_nodeAssignment, _edgeMap);
-      dataplane = data.generateDataplane();
-    }
+
     Tuple<String, Map<Prefix, String>> allFaults = null;
     Tuple<String, Map<Prefix, String>> allLinkFaults = null;
     Tuple<String, Map<Prefix, String>> boundedLinkFaults = null;
-    AllFaultsAnalysis faults = new AllFaultsAnalysis(_filename, _nodeAssignment, _edgeMap, _adj, _nodeAssignment.size(), _originated);
+    FaultAnalysis faults = new FaultAnalysis(_filename, _nodeAssignment, _edgeMap, _adj, _nodeAssignment.size(), _originated, _flags.getSymbolicOrder());
 
     if (_flags.doNodeFaults()) {
       allFaults = faults.compileAllFaults(singlePrefix);
@@ -1014,8 +1029,14 @@ public class NVCompiler {
 
     }
     if (_flags.doBoundedLinkFaults()) {
-      boundedLinkFaults = faults.compiledBoundedLinkFaults(false, _flags.getLinkFaultsBound());
+      boundedLinkFaults = faults.compiledBoundedLinkFaults(false, _flags.getLinkFaultsBound(), !_flags.doDataplane());
     }
+
+    if (_flags.doDataplane()) {
+      Dataplane data = new Dataplane(_nodeAssignment, _edgeMap, _originated, _perNodePrefixes, faults);
+      dataplane = data.generateDataplane(_flags.getLinkFaultsBound());
+    }
+
     return new CompilerResult(controlplane, dataplane, allFaults, allLinkFaults, boundedLinkFaults);
   }
 
