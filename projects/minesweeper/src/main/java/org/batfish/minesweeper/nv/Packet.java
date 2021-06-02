@@ -15,7 +15,7 @@ public class Packet {
     this._dstPort = "dstPort";
     this._srcPort = "srcPort";
     this._ipProtocol = "ipProtocol";
-    this.packet = "p";
+    this.packet = "fs";
   }
 
   public String getDstIp() {

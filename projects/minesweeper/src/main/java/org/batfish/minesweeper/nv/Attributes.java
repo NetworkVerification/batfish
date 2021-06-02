@@ -18,23 +18,21 @@ public class Attributes {
         String _origin,
         String _asSet,
         String _multiPath) {
-      String bgp =
-          "Some {bgpAd="
-              + _ad
-              + "; lp="
-              + _lp
-              + "; aslen="
-              + _aspath
-            + "; med="
-            + _med
-            + "; comms="
-            + _communities
-            + (_flags.doOrigin() ? "; bgpOrigin=" + _origin : "")
-            + (_flags.doNextHop() ? "; bgpNextHop=" + _nexthop : "")
-            + (_flags.doASPath() ? "; bgpAS=" + _asSet : "")
-            + (_flags.doMultiPath() ? "; bgpMultiPath=" + _multiPath : "")
-            + "}";
-    return bgp;
+    return "Some {bgpAd="
+        + _ad
+        + "; lp="
+        + _lp
+        + "; aslen="
+        + _aspath
+      + "; med="
+      + _med
+      + "; comms="
+      + _communities
+      + (_flags.doOrigin() ? "; bgpOrigin=" + _origin : "")
+      + (_flags.doNextHop() ? "; bgpNextHop=" + _nexthop : "")
+      + (_flags.doASPath() ? "; bgpAS=" + _asSet : "")
+      + (_flags.doMultiPath() ? "; bgpMultiPath=" + _multiPath : "")
+      + "}";
   }
 
   public String buildOspfAttribute(
@@ -43,40 +41,39 @@ public class Attributes {
       String _areaType,
       String _areaId,
       String _nexthop,
-      String _origin) {
-    String ospf =
-        "Some {ospfAd="
-            + _ad
-            + "; weight="
-            + _weight
-            + "; areaType="
-            + _areaType
-            + "; areaId="
-            + _areaId
-            + (_flags.doOrigin() ? "; ospfOrigin=" + _origin : "")
-            + (_flags.doNextHop() ? "; ospfNextHop=" + _nexthop : "")
-            + "}";
-    return ospf;
+      String _origin,
+      String _multiPath) {
+    return "Some {ospfAd="
+        + _ad
+        + "; weight="
+        + _weight
+        + "; areaType="
+        + _areaType
+        + "; areaId="
+        + _areaId
+        + (_flags.doOrigin() ? "; ospfOrigin= " + _origin : "")
+        + (_flags.doNextHop() ? "; ospfNextHop= " + _nexthop : "")
+        + (_flags.doMultiPath() ? "; ospfMultiPath= " + _multiPath : "")
+        + "}";
   }
 
   public String buildBgpType() {
-    String bgp =
-        "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];"
-            + (_flags.doOrigin() ? " bgpOrigin: tnode;" : "")
-            + (_flags.doNextHop() && _flags.doMultiPath() ? " bgpNextHop: set[tedge];" :
-                          (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : ""))
-            + (_flags.doASPath() ? " bgpAS: set[tnode];" : "")
-            + (_flags.doMultiPath() ? " bgpMultiPath: int;" : "")
-            + "}";
-    return bgp;
+    return "{bgpAd: int8; lp: int; aslen: int; med:int; comms:set[int];"
+        + (_flags.doOrigin() ? " bgpOrigin: tnode;" : "")
+        + (_flags.doNextHop() && _flags.doMultiPath() ? " bgpNextHop: set[tedge];" :
+                      (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : ""))
+        + (_flags.doASPath() ? " bgpAS: set[tnode];" : "")
+        + (_flags.doMultiPath() ? " bgpMultiPath: float;" : "")
+        + "}";
   }
 
   public String buildOspfType() {
-    String ospf = "{ospfAd: int8; weight: int16; areaType:int2; areaId: int;" +
+    return "{ospfAd: int8; weight: int16; areaType:int2; areaId: int;" +
         (_flags.doOrigin() ? " ospfOrigin: tnode;" : "") +
-            (_flags.doNextHop() ? " ospfNextHop: option[tedge];" : "") +
+        (_flags.doNextHop() && _flags.doMultiPath() ? " ospfNextHop: set[tedge];" :
+            (_flags.doNextHop() ? " ospfNextHop: option[tedge];" : "")) +
+        (_flags.doMultiPath() ? " ospfMultiPath: float;" : "") +
     "}";
-    return ospf;
   }
 
 

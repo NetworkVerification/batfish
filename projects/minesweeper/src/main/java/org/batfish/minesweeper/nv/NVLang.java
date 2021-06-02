@@ -151,9 +151,33 @@ public final class NVLang {
     }
   }
 
+  private static boolean isInteger(String str) {
+    if (str == null) {
+      return false;
+    }
+    int length = str.length();
+    if (length == 0) {
+      return false;
+    }
+    int i = 0;
+    if (str.charAt(0) == '-') {
+      if (length == 1) {
+        return false;
+      }
+      i = 1;
+    }
+    for (; i < length; i++) {
+      char c = str.charAt(i);
+      if (c < '0' || c > '9') {
+        return false;
+      }
+    }
+    return true;
+  }
+
   public static String mkBitAnd(String x, String y) {
     if (x.equals("0") || x.equals("0u32") || y.equals("0") || y.equals("0u32")) {
-      return "0";
+      return "0u32";
     }
     else {
       return "(" + x + " & " + y + ")";

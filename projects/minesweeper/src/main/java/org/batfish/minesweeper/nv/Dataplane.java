@@ -2,8 +2,8 @@ package org.batfish.minesweeper.nv;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -11,19 +11,13 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.SortedSet;
-import org.batfish.datamodel.Edge;
-import org.batfish.datamodel.Ip;
-import org.batfish.datamodel.IpProtocol;
-import org.batfish.datamodel.Prefix6Trie;
-import org.batfish.datamodel.PrefixTrieMultiMap;
-import org.batfish.minesweeper.nv.Flow;
 import org.batfish.datamodel.Interface;
+import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.IpAccessList;
+import org.batfish.datamodel.IpProtocol;
 import org.batfish.datamodel.Prefix;
-import org.batfish.minesweeper.Graph;
 import org.batfish.minesweeper.GraphEdge;
 import org.batfish.minesweeper.abstraction.PrefixTrie;
-import org.batfish.minesweeper.abstraction.PrefixTrieMap;
 
 
 /* A model of the dataplane with quantities where there */
@@ -41,15 +35,18 @@ public class Dataplane {
 
   private PrefixTrie _preTrie;
 
-  private FaultAnalysis _fa;
+  private final FaultAnalysis _fa;
 
-  public Dataplane(Map<String, Integer> _nodes, Map<GraphEdge, String> edgeMap, SortedSet<Prefix> originated, Map<Integer, Set<Prefix>> perNodePrefixes, FaultAnalysis fa ) {
+  private final CompilerOptions _flags;
+
+  public Dataplane(Map<String, Integer> _nodes, Map<GraphEdge, String> edgeMap, SortedSet<Prefix> originated, Map<Integer, Set<Prefix>> perNodePrefixes, FaultAnalysis fa, CompilerOptions flags) {
     this._nodes = _nodes;
     this._edgeMap = edgeMap;
     this._originated = originated;
     this._perNodePrefixes = perNodePrefixes;
     this._fa = fa;
     this._preTrie = new PrefixTrie(originated);
+    this._flags = flags;
   }
 
   /** Type of messages exchanged by the dataplane **/
@@ -89,41 +86,135 @@ public class Dataplane {
   //    sb.append("\n\n");
   //  }
 
-  private void fwdOut(StringBuilder sb, int bound) {
 
-    sb.append("let getFwd route =\n")
-        .append("  match route.selected with\n")
-        .append("  | None -> None\n")
-        .append("  | Some 0u2 -> Some None\n")
-        .append("  | Some 1u2 -> Some None\n")
-        .append("  | Some 2u2 -> (match route.ospf with\n")
-        .append("                 | None -> None (*can't happen *) \n")
-        .append("                 | Some o -> Some o.ospfNextHop)\n")
-        .append("  | Some 3u2 -> (match route.bgp with\n")
-        .append("                 | None -> None (*can't happen *)\n")
-        .append("                 | Some b -> Some b.bgpNextHop)\n\n");
+  private void computeACL(StringBuilder sb, boolean out) {
 
-    //TODO: implement ACLs
-    //TODO: implement ECMP
+    if (out)
+    {sb.append("let aclOut edge fs = \n")
+        .append("  match edge with\n");
+}
+    else {
+      sb.append("let aclIn edge fs = \n")
+          .append("  match edge with\n");
+    }
+
+    // ACL to edge map
+    Map<String, Set<String>> equivAcls = new HashMap<>();
+
+    for (Entry<GraphEdge, String> edge : _edgeMap.entrySet()) {
+      Interface i = edge.getKey().getStart();
+
+      IpAccessList filter;
+      if (out) {
+        filter = i.getOutgoingFilter();
+      }
+      else
+      {
+        filter = i.getIncomingFilter();
+      }
+      Optional<String> outAcl = Optional.empty();
+      if (filter != null) {
+        outAcl = computeACL(filter);
+      }
+
+      // Encoding the ACLs
+      String filterOut = outAcl.orElse("true");
+
+      Set<String> edges = equivAcls.get(filterOut);
+      if (edges == null) {
+        edges = new HashSet<>();
+        edges.add(edge.getValue());
+        equivAcls.put(filterOut, edges);
+      }
+      else {
+        edges.add(edge.getValue());
+      }
+    }
+
+    for (Entry<String, Set<String>> e : equivAcls.entrySet()) {
+      if (!(e.getKey().equals("true")))
+      {
+
+
+        for (String edge : e.getValue()) {
+          sb.append("  | ").append(edge).append(" ->\n    ")
+              .append(e.getKey()).append("\n");
+        }
+      }
+    }
+
+    // Do default case
+    sb.append("  | _ -> true\n\n");
+  }
+
+
+  private String nextHopMatch(boolean multipath, String nhops) {
+
+    if (multipath) {
+        return "                   if nhop[e] && (aclOut e fs) then Some (Some (split fs " + nhops + ")) else None))\n";
+    }
+    else
+      return "                   if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n";
+  }
+
+
+
+  private void fwdOut(StringBuilder sb, int bound, boolean multipath) {
+
+    computeACL(sb, true);
+
+
+    if (multipath) {
+      sb.append("let split fs npaths = {fs with size = fs.size /. npaths}\n\n");
+    }
+
     sb.append("let fwdOut (nodeRIB : [C]dict[[C]tnode, [M]rib]) e (fs : [C]option[flow])  = \n")
-        .append("  if ")
-        .append(_fa.failureCondition(bound))
-        .append(" then\n")
-        .append("    None\n")
-        .append("  else\n")
-        .append("    match fs with\n")
-        .append("    | None -> None\n")
-        .append("    | Some fs -> \n")
-        .append("       let r = nodeRIB[let (u~v) = e in u] in\n")
-        .append("       (match (getFwd r) with\n")
-        .append("         | None -> None\n")
-        .append("         | Some None -> Some None\n")
-        .append("         | Some (Some e') -> if e = e' then Some (Some fs) else None)\n\n");
+        //        .append("  if ")
+        //        .append(_fa.failureCondition(bound))
+        //        .append(" then\n")
+        //        .append("    None\n")
+        //        .append("  else\n")
+        .append("  match fs with\n")
+        .append("  | None -> None\n")
+        .append("  | Some fs -> \n")
+        .append("     let r = nodeRIB[let (u~v) = e in u] in\n")
+        .append("     (match r.selected with\n")
+        .append("       | None -> None\n")
+        .append("       | Some 0u2 -> Some None\n")
+        .append("       | Some 1u2 -> Some None\n")
+        .append("       | Some 2u2 -> (match r.ospf with\n")
+        .append("                 | None -> None (*can't happen *) \n")
+        .append("                 | Some o -> (\n");
+      if (_flags.doMultiPath()) {
+        sb.append("                   if o.ospfNextHop = {} then Some None else\n")
+            .append("                 if o.ospfNextHop[e] && (aclOut e fs) then Some (Some (split fs o.ospfMultiPath)) else None))\n");
+      }
+      else {
+        sb.append("                   match o.ospfNextHop with\n")
+            .append("                   | None -> Some None\n")
+            .append("                   | Some nhop ->\n")
+            .append("                      if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n");
+      }
+        sb.append("        | Some 3u2 -> (match r.bgp with\n")
+        .append("                 | None -> None (*can't happen *)\n")
+        .append("                 | Some b -> (\n");
+    if (_flags.doMultiPath()) {
+      sb.append("                   if b.bgpNextHop = {} then Some None else\n")
+          .append("                 if b.bgpNextHop[e] && (aclOut e fs) then Some (Some (split fs b.bgpMultiPath)) else None))\n");
+    }
+    else {
+      sb.append("                   match b.bgpNextHop with\n")
+          .append("                   | None -> Some None\n")
+          .append("                   | Some nhop ->\n")
+          .append("                      if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n");
+    }
+    sb.append("      )\n\n");
+
   }
 
   private void fwdIn(StringBuilder sb) {
-    //TODO: implement ACLs
-    sb.append("let fwdIn e fs = fs\n\n");
+    computeACL(sb, false);
+    sb.append("let fwdIn e fs = if aclIn e fs then fs else None\n\n");
   }
 
   private void historyE(StringBuilder sb) {
@@ -184,6 +275,7 @@ public class Dataplane {
   //    return sb.toString();
   //  }
 
+
   /*
    * Convert an Access Control List (ACL) to an NV expression.
    * The default action in an ACL is to deny all traffic.
@@ -237,7 +329,7 @@ public class Dataplane {
                       srcPort,
                       dstPort,
                       protocol,
-                      (double) flowSize);
+                      flowSize);
               flows.add(f);
             }
           }
@@ -310,39 +402,41 @@ public class Dataplane {
 
   // TODO: add ordering constraints, break into pairwise link utilizations.
   private void capacityAssertions(StringBuilder sb, int nbFlows) {
-    sb.append("let linkUtilization e =\n");
-        for (int i = 0; i < nbFlows-1; i++)
-        {
-          sb.append("hETc").append(i).append("[e] +. ");
-        }
-        sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
+    sb.append("\nlet linkUtilization e =\n");
+    for (int i = 0; i < nbFlows-1; i++)
+    {
+      sb.append("hETc").append(i).append("[e] +. ");
+    }
+    sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
 
-        for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
-          sb.append("assert(\"Link(").append(e.getKey())
-              .append("\", linkUtilization ")
-              .append(e.getValue())
-              .append(" <. 10000.0)\n");
-        }
+    sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
+
+    for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
+      sb.append("assert(\"Link(").append(e.getKey())
+          .append("\", linkUtilization ")
+          .append(e.getValue())
+          .append(" <. 10000.0 | ord)\n");
+    }
   }
 
-  public String generateDataplane(int numberOfFailures) {
+  public String generateDataplane() {
     // Generate helper functions as above.
     StringBuilder sb = new StringBuilder();
 
     sb.append("include \"")
         .append("LinkFaults")
-        .append(numberOfFailures)
+        .append(_flags.getLinkFaultsBound())
         .append("/")
         .append(_fa.get_filename())
         .append("_")
-        .append(numberOfFailures)
+        .append(_flags.getLinkFaultsBound())
         .append("_linkFaults.nv\"\n\n");
 
     // Add flow type
     sb.append(getAttributeType()).append("\n\n");
 
     // Add fwdOut skeleton
-    fwdOut(sb, numberOfFailures);
+    fwdOut(sb, _flags.getLinkFaultsBound(), _flags.doMultiPath());
 
     // Add fwdIn
     fwdIn(sb);
