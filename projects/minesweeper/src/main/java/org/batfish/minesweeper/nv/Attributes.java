@@ -16,8 +16,7 @@ public class Attributes {
         String _communities,
         String _nexthop,
         String _origin,
-        String _asSet,
-        String _multiPath) {
+        String _asSet) {
     return "Some {bgpAd="
         + _ad
         + "; lp="
@@ -31,7 +30,6 @@ public class Attributes {
       + (_flags.doOrigin() ? "; bgpOrigin=" + _origin : "")
       + (_flags.doNextHop() ? "; bgpNextHop=" + _nexthop : "")
       + (_flags.doASPath() ? "; bgpAS=" + _asSet : "")
-      + (_flags.doMultiPath() ? "; bgpMultiPath=" + _multiPath : "")
       + "}";
   }
 
@@ -41,8 +39,7 @@ public class Attributes {
       String _areaType,
       String _areaId,
       String _nexthop,
-      String _origin,
-      String _multiPath) {
+      String _origin) {
     return "Some {ospfAd="
         + _ad
         + "; weight="
@@ -53,7 +50,6 @@ public class Attributes {
         + _areaId
         + (_flags.doOrigin() ? "; ospfOrigin= " + _origin : "")
         + (_flags.doNextHop() ? "; ospfNextHop= " + _nexthop : "")
-        + (_flags.doMultiPath() ? "; ospfMultiPath= " + _multiPath : "")
         + "}";
   }
 
@@ -63,7 +59,6 @@ public class Attributes {
         + (_flags.doNextHop() && _flags.doMultiPath() ? " bgpNextHop: set[tedge];" :
                       (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : ""))
         + (_flags.doASPath() ? " bgpAS: set[tnode];" : "")
-        + (_flags.doMultiPath() ? " bgpMultiPath: float;" : "")
         + "}";
   }
 
@@ -72,7 +67,6 @@ public class Attributes {
         (_flags.doOrigin() ? " ospfOrigin: tnode;" : "") +
         (_flags.doNextHop() && _flags.doMultiPath() ? " ospfNextHop: set[tedge];" :
             (_flags.doNextHop() ? " ospfNextHop: option[tedge];" : "")) +
-        (_flags.doMultiPath() ? " ospfMultiPath: float;" : "") +
     "}";
   }
 

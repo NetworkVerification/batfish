@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import org.batfish.common.plugin.IBatfish;
+import org.batfish.datamodel.BgpProcess;
 import org.batfish.datamodel.Configuration;
 import org.batfish.datamodel.GeneratedRoute;
 import org.batfish.datamodel.Interface;
@@ -62,10 +63,10 @@ class InitialAttribute {
     String s = this._static ? "Some 1u8" : "None";
     String o = "None";
     if (this._areaId.isPresent()) {
-      o = attrs.buildOspfAttribute("110u8", "0u16", "ospfIntraArea",  _areaId.get().toString(), "None", node + "n", "0.0");
+      o = attrs.buildOspfAttribute("110u8", "0u16", "ospfIntraArea",  _areaId.get().toString(), _flags.doMultiPath() ? "{}" : "None", node + "n");
     }
     String b = _bgp ?
-        attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", node + "n", "{}", "0.0") : "None";
+        attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", node + "n", "{}") : "None";
     sb.append("    let c = ")
         .append(c)
         .append(" in\n")
@@ -239,7 +240,7 @@ public class NVCompiler {
                 }
                 exportString.append(") then ")
                     .append("{v with bgp= ")
-                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"))
+                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"))
                     .append(" else None\n")
                     .append("      | Some _ -> v) x in\n");
 
@@ -380,14 +381,14 @@ public class NVCompiler {
       if (protocols != null && protocols.contains(Protocol.CONNECTED)) {
         // Default bgp attribute for connected
         redistributedRoutes.put(Protocol.CONNECTED, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"));
+            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
       }
       else { redistributedRoutes.put(Protocol.CONNECTED, "None"); }
 
       //TODO: Nexthop and origin might need to be different.
       if (protocols.contains(Protocol.STATIC)) {
         redistributedRoutes.put(Protocol.STATIC, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}", "0"));
+            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
       }
       else { redistributedRoutes.put(Protocol.STATIC, "None"); }
 
@@ -403,7 +404,7 @@ public class NVCompiler {
             "80",
             "{}",
             "o.ospfNextHop",
-            "o.ospfOrigin", "{}", "o.ospfMultiPath") +")";
+            "o.ospfOrigin", "{}") +")";
         redistributedRoutes.put(Protocol.OSPF, bospf);
       }
       else {redistributedRoutes.put(Protocol.OSPF, "None");}
@@ -413,7 +414,7 @@ public class NVCompiler {
     /* Set BGP multiPath and nextHop in an attribute of the transfer function */
   private void bgpNextHop(StringBuilder sb) {
     if (_flags.doMultiPath()) {
-      sb.append("        let b = {b with bgpNextHop = match flipEdge e with | None -> {} | Some fe -> {fe}; bgpMultiPath = 1.0;} in\n");
+      sb.append("        let b = {b with bgpNextHop = match flipEdge e with | None -> {} | Some fe -> {fe}} in\n");
     }
     else {
     sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
@@ -577,10 +578,10 @@ public class NVCompiler {
         //        sb.append("None\n");
         // }
         if (_graph.isInterfaceActive(Protocol.OSPF, iface) && !ospfSet.contains(_edgeMap.get(edge))) {
-          String nhop = _flags.doMultiPath() ? "match flipEdge edge with None -> {} | Some fe -> {fe}" : "flipEdge edge";
+          String nhop = _flags.doMultiPath() ? "match flipEdge edge with | None -> {} | Some fe -> {fe}" : "flipEdge edge";
           String o = _attrs.buildOspfAttribute("o.ospfAd","o.weight +u16 " + cost +"u16",
               "if !(o.areaId = " + areaId + ") then ospfInterArea else o.areaType",
-              areaId.toString(), nhop, "o.ospfOrigin", "1.0");
+              areaId.toString(), nhop, "o.ospfOrigin");
           ospfSet.add(_edgeMap.get(edge));
           sb.append("     | ").append(_edgeMap.get(edge)).append(" -> ");
           sb.append(o).append("\n");
@@ -649,7 +650,7 @@ public class NVCompiler {
     sb.append("let pickMinOption = pickOption min\n\n");
 
     if ((_flags.doMultiPath()) && (_flags.doNextHop())) {
-      sb.append("let union (s1 : [C]dict[[C]tedge, [C]bool]) (s2 : [C]dict[[C]tedge, [C]bool]) = combine (fun x y -> x && y) s1 s2\n\n");
+      sb.append("let union (s1 : [C]dict[[C]tedge, [C]bool]) (s2 : [C]dict[[C]tedge, [C]bool]) = combine (fun x y -> x || y) s1 s2\n\n");
     }
 
     sb.append("(* OSPF Route ranking: first compare areas, then weights. \n  Multipath is applied by default if enabled during translation.*)\n")
@@ -659,18 +660,11 @@ public class NVCompiler {
         .append("  else if o1.weight <u16 o2.weight then o1\n")
         .append("  else if o2.weight <u16 o1.weight then o2\n");
     if (_flags.doMultiPath()) {
-      if (_flags.doNextHop()){
-        sb.append("  else {o1 with ospfMultiPath=o1.ospfMultiPath +. o2.ospfMultiPath;\n")
-            .append(
-                "                  ospfNextHop = union o1.ospfNextHop o2.ospfNextHop}\n\n");
-      } else {
+        sb.append("  else {o1 with ospfNextHop = union o1.ospfNextHop o2.ospfNextHop}\n\n");
+      }
+    else {
         sb.append("  else {o1 with ospfMultiPath = o1.ospfMultiPath +. o2.ospfMultiPath}\n\n");
       }
-    }
-    else {
-      // no multipath
-      sb.append("  else o1\n\n");
-    }
 
 
 
@@ -692,19 +686,13 @@ public class NVCompiler {
         .append("  else if b1.med > b2.med then b2\n");
 
         if (_flags.doMultiPath()) {
-          if (_flags.doNextHop()){
-            sb.append("  else if multiPath then {b1 with bgpMultiPath=b1.bgpMultiPath +. b2.bgpMultiPath;\n"
-                +     "                                  bgpNextHop = union b1.bgpNextHop b2.bgpNextHop}\n")
-                .append("  else {b1 with bgpMultiPath = b1.bgpMultiPath}\n\n");
-          } else {
-            sb.append("  else if multiPath then {b1 with bgpMultiPath = b1.bgpMultiPath +. b2.bgpMultiPath}\n"
-                +     "  else b1\n\n");
+          sb.append("  else if multiPath then {b1 with bgpNextHop = union b1.bgpNextHop b2.bgpNextHop}\n")
+              .append("  else b1\n\n");
           }
-        }
         else {
-          // no multipath
             sb.append("  else b1\n\n");
-        }
+          }
+
 
     sb.append("(* Determine which of the four protocols has the best route by comparing their ADs *)\n")
         .append("let best c s o b =\n")
@@ -750,7 +738,15 @@ public class NVCompiler {
           String router = entry.getKey();
           Integer u = _nodeAssignment.get(router);
           Configuration config = entry.getValue();
-          if (config.getDefaultVrf().getBgpProcess().getMultipathEbgp()) {
+          BgpProcess bgpProc = config.getDefaultVrf().getBgpProcess();
+
+          if (bgpProc == null)
+          {
+            allMultiPath = false;
+            continue;
+          }
+
+          if (bgpProc.getMultipathEbgp()) {
             allSinglePath = false;
             sbMultiPath.append("  | ").append(u).append("n -> mergeValues true x y\n");
           } else {

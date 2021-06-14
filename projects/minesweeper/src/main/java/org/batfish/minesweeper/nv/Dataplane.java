@@ -51,7 +51,7 @@ public class Dataplane {
 
   /** Type of messages exchanged by the dataplane **/
   private String getAttributeType() {
-    return "type flow = {srcIp: int; dstIp: int; srcPort:int16; dstPort:int16; protocol: int8; size:float }";
+    return "type flow = {srcIp: int; dstIp: int; srcPort:int16; dstPort:int16; protocol: int8; flowSize:float }";
   }
   //
   //  private void generateLPM(StringBuilder sb) {
@@ -165,10 +165,10 @@ public class Dataplane {
 
 
     if (multipath) {
-      sb.append("let split fs npaths = {fs with size = fs.size /. npaths}\n\n");
+      sb.append("let split fs npaths = {fs with flowSize = fs.flowSize /. npaths}\n\n");
     }
 
-    sb.append("let fwdOut (nodeRIB : [C]dict[[C]tnode, [M]rib]) e (fs : [C]option[flow])  = \n")
+    sb.append("let fwdOut (r : [C]rib) e (fs : [C]option[flow])  = \n")
         //        .append("  if ")
         //        .append(_fa.failureCondition(bound))
         //        .append(" then\n")
@@ -177,7 +177,6 @@ public class Dataplane {
         .append("  match fs with\n")
         .append("  | None -> None\n")
         .append("  | Some fs -> \n")
-        .append("     let r = nodeRIB[let (u~v) = e in u] in\n")
         .append("     (match r.selected with\n")
         .append("       | None -> None\n")
         .append("       | Some 0u2 -> Some None\n")
@@ -187,7 +186,7 @@ public class Dataplane {
         .append("                 | Some o -> (\n");
       if (_flags.doMultiPath()) {
         sb.append("                   if o.ospfNextHop = {} then Some None else\n")
-            .append("                 if o.ospfNextHop[e] && (aclOut e fs) then Some (Some (split fs o.ospfMultiPath)) else None))\n");
+            .append("                 if o.ospfNextHop[e] && (aclOut e fs) then Some (Some (split fs (size o.ospfNextHop true))) else None))\n");
       }
       else {
         sb.append("                   match o.ospfNextHop with\n")
@@ -200,7 +199,7 @@ public class Dataplane {
         .append("                 | Some b -> (\n");
     if (_flags.doMultiPath()) {
       sb.append("                   if b.bgpNextHop = {} then Some None else\n")
-          .append("                 if b.bgpNextHop[e] && (aclOut e fs) then Some (Some (split fs b.bgpMultiPath)) else None))\n");
+          .append("                 if b.bgpNextHop[e] && (aclOut e fs) then Some (Some (split fs (size b.bgpNextHop true))) else None))\n");
     }
     else {
       sb.append("                   match b.bgpNextHop with\n")
@@ -224,7 +223,7 @@ public class Dataplane {
     sb.append("let logE e fs edgeHistory =\n")
         .append("  match fs with\n")
         .append("  | None -> edgeHistory\n")
-        .append("  | Some f -> f.size +. edgeHistory\n\n");
+        .append("  | Some f -> f.flowSize +. edgeHistory\n\n");
   }
 
   /* Could trace set of packets or unit */
@@ -304,7 +303,22 @@ public class Dataplane {
         // If this prefix is not announced by this node
         if (!_perNodePrefixes.get(node.getValue()).contains(dstPre)) {
           // Randomly choose whether to send traffic to it.
-          boolean sendsTraffic = rand.nextBoolean();
+          boolean sendsTraffic = rand.nextBoolean() && rand.nextBoolean();
+          if (flows.size() < 10)
+            sendsTraffic = sendsTraffic || rand.nextBoolean() || rand.nextBoolean();
+
+          if (flows.size() > 10)
+            sendsTraffic = sendsTraffic && rand.nextBoolean();
+
+          if (flows.size() > 100)
+            sendsTraffic = sendsTraffic && rand.nextBoolean();
+
+          if (flows.size() > 500)
+            sendsTraffic = sendsTraffic && rand.nextBoolean() && rand.nextBoolean();
+
+          if (flows.size() > 600)
+            sendsTraffic = sendsTraffic && rand.nextBoolean() && rand.nextBoolean() && rand.nextBoolean();
+
           if (sendsTraffic) {
             // If yes, check that the source node announces some prefix (TODO: alternatively, has some host connected)
             Set<Prefix> sources = _perNodePrefixes.get(node.getValue());
@@ -332,10 +346,12 @@ public class Dataplane {
                       flowSize);
               flows.add(f);
             }
+            sendsTraffic = false;
           }
         }
       }
     }
+
     return flows;
   }
 
@@ -364,12 +380,12 @@ public class Dataplane {
           .append("  else None\n\n");
 
       List<Prefix> matchingPrefixes = _preTrie.getLongestPrefixMatches(f.get_dstIp());
-      sb.append("let fwdOutTc").append(i).append(" e (fs : [M]option[flow])  =\n");
+      sb.append("let fwdOutTc").append(i).append(" e (fs : [C]option[flow])  =\n");
       Iterator<Prefix> it = matchingPrefixes.iterator();
       StringBuilder sbParen = new StringBuilder();
       while (it.hasNext()) {
         Prefix pre = it.next();
-        sb.append("  match fwdOut ").append(_fa.ribName(pre))
+        sb.append("  match fwdOut (").append(_fa.ribName(pre)).append("[let (u~v) = e in u])")
             .append(" e fs with\n")
             .append("  | Some (Some fs) -> Some fs\n")
             .append("  | Some None -> None\n");
@@ -400,24 +416,59 @@ public class Dataplane {
     sb.append(sbSols);
   }
 
-  // TODO: add ordering constraints, break into pairwise link utilizations.
-  private void capacityAssertions(StringBuilder sb, int nbFlows) {
-    sb.append("\nlet linkUtilization e =\n");
-    for (int i = 0; i < nbFlows-1; i++)
-    {
-      sb.append("hETc").append(i).append("[e] +. ");
-    }
-    sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
 
+  /* Utilizations are computed pairwise */
+  private void capacityAssertions(StringBuilder sb, int nbFlows) {
+
+    sb.append("\n");
+    if (nbFlows > 0) {
+      sb.append("@noinline let linkUtilization0 e = hETc0[e]");
+      if (nbFlows > 1)
+        sb.append(" +. hETc1[e]\n\n");
+      else sb.append("\n\n");
+    }
+    else return;
+
+    for (int i = 1; i < nbFlows-1; i++)
+    {
+      sb.append("@noinline let linkUtilization")
+          .append(i)
+          .append(" e = (linkUtilization")
+          .append(i - 1)
+          .append(" e) +. hETc")
+          .append(i+1).append("[e]\n\n");
+    }
     sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
 
     for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
-      sb.append("assert(\"Link(").append(e.getKey())
-          .append("\", linkUtilization ")
+      sb.append("assert(\"Link(")
+          .append(e.getKey())
+          .append("\", linkUtilization")
+          .append(nbFlows - 2)
+          .append(" ")
           .append(e.getValue())
           .append(" <. 10000.0 | ord)\n");
     }
   }
+
+//  private void capacityAssertions(StringBuilder sb, int nbFlows) {
+//    sb.append("\nlet linkUtilization e =\n");
+//
+//    for (int i = 0; i < nbFlows-1; i++)
+//    {
+//      sb.append("hETc").append(i).append("[e] +. ");
+//    }
+//    sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
+//
+//    sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
+//
+//    for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
+//      sb.append("assert(\"Link(").append(e.getKey())
+//          .append("\", linkUtilization ")
+//          .append(e.getValue())
+//          .append(" <. 10000.0 | ord)\n");
+//    }
+//  }
 
   public String generateDataplane() {
     // Generate helper functions as above.

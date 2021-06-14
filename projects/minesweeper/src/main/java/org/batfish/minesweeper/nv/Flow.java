@@ -58,7 +58,7 @@ public class Flow {
   public String compile() {
     return "{srcIp = " + this._srcIp.toString() + "; dstIp = " + this._dstIp.toString() +
         "; srcPort = " + this._srcPort.toString() + "u16; dstPort = " + this._dstPort.toString() +
-        "u16; protocol = " + this._protocol.number() + "u8; size = " + this._flowSize + "}";
+        "u16; protocol = " + this._protocol.number() + "u8; flowSize = " + this._flowSize + "}";
   }
 
 }
