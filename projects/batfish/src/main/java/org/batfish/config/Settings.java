@@ -137,6 +137,26 @@ public final class Settings extends BaseSettings implements GrammarSettings {
 
   private BatfishLogger _logger;
 
+//  private String _testRigName;
+//
+//  public String get_testRigName() {
+//    return _testRigName;
+//  }
+//
+//  public void set_testRigName(String _testRigName) {
+//    this._testRigName = _testRigName;
+//  }
+//
+//  public String get_testRigDir() {
+//    return _testRigDir;
+//  }
+//
+//  public void set_testRigDir(String _testRigDir) {
+//    this._testRigDir = _testRigDir;
+//  }
+//
+//  private String _testRigDir;
+
   public Settings() {
     this(new String[] {});
   }

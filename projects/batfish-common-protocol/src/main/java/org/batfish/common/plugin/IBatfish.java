@@ -115,6 +115,8 @@ public interface IBatfish extends IPluginConsumer {
 
   SnapshotId getTestrigName();
 
+  String getInputPath();
+
   InitInfoAnswerElement initInfo(boolean summary, boolean verboseError);
 
   InitInfoAnswerElement initInfoBgpAdvertisements(boolean summary, boolean verboseError);

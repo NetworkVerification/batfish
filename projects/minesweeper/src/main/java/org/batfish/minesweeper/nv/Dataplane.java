@@ -1,5 +1,7 @@
 package org.batfish.minesweeper.nv;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,13 +11,17 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Scanner;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.SortedSet;
+import java.util.regex.Pattern;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Ip;
 import org.batfish.datamodel.IpAccessList;
 import org.batfish.datamodel.IpProtocol;
 import org.batfish.datamodel.Prefix;
+import org.batfish.minesweeper.Graph;
 import org.batfish.minesweeper.GraphEdge;
 import org.batfish.minesweeper.abstraction.PrefixTrie;
 
@@ -29,22 +35,32 @@ public class Dataplane {
   /* Maps GraphEdge to NV edges */
   private Map<GraphEdge, String> _edgeMap;
 
+  private Map<String, GraphEdge> _reverseEdgeMap;
+
   private SortedSet<Prefix> _originated; // Originated BGP and OSPF prefixes
 
   private Map<Integer, Set<Prefix>> _perNodePrefixes;
+
+  private SortedMap<Integer, GraphEdge> _idToEdge;
 
   private PrefixTrie _preTrie;
 
   private final FaultAnalysis _fa;
 
+  /* Link Capacities from the GraphEdge name to capacity.*/
+  private final Map<String, Double>  _linkCapacities;
+
   private final CompilerOptions _flags;
 
-  public Dataplane(Map<String, Integer> _nodes, Map<GraphEdge, String> edgeMap, SortedSet<Prefix> originated, Map<Integer, Set<Prefix>> perNodePrefixes, FaultAnalysis fa, CompilerOptions flags) {
+  public Dataplane(Map<String, Integer> _nodes, Map<GraphEdge, String> edgeMap, Map<String, GraphEdge> reverseEdgeMap, SortedMap<Integer, GraphEdge> idToEdge, SortedSet<Prefix> originated, Map<Integer, Set<Prefix>> perNodePrefixes, Map<String, Double> linkCapacities, FaultAnalysis fa, CompilerOptions flags) {
     this._nodes = _nodes;
     this._edgeMap = edgeMap;
+    this._reverseEdgeMap = reverseEdgeMap;
+    this._idToEdge = idToEdge;
     this._originated = originated;
     this._perNodePrefixes = perNodePrefixes;
     this._fa = fa;
+    this._linkCapacities = linkCapacities;
     this._preTrie = new PrefixTrie(originated);
     this._flags = flags;
   }
@@ -92,7 +108,7 @@ public class Dataplane {
     if (out)
     {sb.append("let aclOut edge fs = \n")
         .append("  match edge with\n");
-}
+    }
     else {
       sb.append("let aclIn edge fs = \n")
           .append("  match edge with\n");
@@ -151,7 +167,7 @@ public class Dataplane {
   private String nextHopMatch(boolean multipath, String nhops) {
 
     if (multipath) {
-        return "                   if nhop[e] && (aclOut e fs) then Some (Some (split fs " + nhops + ")) else None))\n";
+      return "                   if nhop[e] && (aclOut e fs) then Some (Some (split fs " + nhops + ")) else None))\n";
     }
     else
       return "                   if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n";
@@ -184,17 +200,17 @@ public class Dataplane {
         .append("       | Some 2u2 -> (match r.ospf with\n")
         .append("                 | None -> None (*can't happen *) \n")
         .append("                 | Some o -> (\n");
-      if (_flags.doMultiPath()) {
-        sb.append("                   if o.ospfNextHop = {} then Some None else\n")
-            .append("                 if o.ospfNextHop[e] && (aclOut e fs) then Some (Some (split fs (size o.ospfNextHop true))) else None))\n");
-      }
-      else {
-        sb.append("                   match o.ospfNextHop with\n")
-            .append("                   | None -> Some None\n")
-            .append("                   | Some nhop ->\n")
-            .append("                      if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n");
-      }
-        sb.append("        | Some 3u2 -> (match r.bgp with\n")
+    if (_flags.doMultiPath()) {
+      sb.append("                   if o.ospfNextHop = {} then Some None else\n")
+          .append("                 if o.ospfNextHop[e] && (aclOut e fs) then Some (Some (split fs (size o.ospfNextHop true))) else None))\n");
+    }
+    else {
+      sb.append("                   match o.ospfNextHop with\n")
+          .append("                   | None -> Some None\n")
+          .append("                   | Some nhop ->\n")
+          .append("                      if (e = nhop) && (aclOut e fs) then Some (Some fs) else None))\n");
+    }
+    sb.append("        | Some 3u2 -> (match r.bgp with\n")
         .append("                 | None -> None (*can't happen *)\n")
         .append("                 | Some b -> (\n");
     if (_flags.doMultiPath()) {
@@ -289,7 +305,7 @@ public class Dataplane {
     return Optional.of(new IpAccessListToNvExpr().toNvExpr(acl));
   }
 
-  // Generate a random traffic matrix
+  /* Generate a random traffic matrix */
   private List<Flow> randomTrafficMatrix() {
     List<Flow> flows = new ArrayList<>();
     Random rand = new Random();
@@ -351,7 +367,83 @@ public class Dataplane {
         }
       }
     }
+    return flows;
+  }
 
+  /* Generate a random traffic matrix using tmgen. The return value is a map
+   *  from destination ip to a list of flows towards that destination. */
+  private Map<Ip, List<Flow>> tmgenMatrix() {
+    Map<Ip, List<Flow>> flows = new HashMap<>();
+
+    /* Call python process to generate the traffic matrix */
+
+    File csvFile = new File(_fa.get_filename() + "/" + _fa.get_filename()+"Traffic.csv");
+
+    if (!csvFile.exists()) {
+      System.out.println("Traffic matrix does not exist, generating a new one.");
+      // Generate a traffic matrix if none exists.
+      ProcessBuilder pb = new ProcessBuilder();
+      try {
+        Process p =
+            Runtime.getRuntime()
+                .exec(
+                    "python3 verify.py --generateTM "
+                        + _fa.get_filename()
+                        + " --tmMode "
+                        + _flags.getTrafficMatrix());
+        p.waitFor();
+        //      Thread.sleep(5000);
+      } catch (IOException | InterruptedException e) {
+        e.printStackTrace();
+      }
+    }
+    else {
+      System.out.println("Traffic matrix exists, not generating a new one.");
+    }
+
+    Random rand = new Random();
+
+    try (Scanner scanner = new Scanner(csvFile)) {
+
+      // CSV file delimiter
+      Pattern DELIMITER = Pattern.compile("[\\r\\n;]+|,");
+
+      // set comma as delimiter
+      scanner.useDelimiter(DELIMITER);
+
+      while (scanner.hasNext()) {
+        Prefix dstPrefix = Prefix.parse(scanner.next());
+        Prefix srcPrefix = Prefix.parse(scanner.next());
+        int srcNode = Integer.parseInt(scanner.next());
+        String n = scanner.next();
+        int flowSize = Double.valueOf(n).intValue();
+
+        /* Randomly pick the ports and protocol used */
+        Integer srcPort = rand.nextInt((int) Math.pow(2, 16));
+        Integer dstPort = rand.nextInt((int) Math.pow(2, 16));
+        IpProtocol protocol = IpProtocol.fromNumber(rand.nextBoolean() ? 6 : 17);
+        Ip srcIp = srcPrefix.getFirstHostIp();
+        Ip dstIp = dstPrefix.getFirstHostIp();
+
+        Flow f =
+            new Flow(
+                srcNode,
+                srcIp,
+                dstIp,
+                srcPort,
+                dstPort,
+                protocol,
+                flowSize);
+        List<Flow> dstFlows = flows.get(dstIp);
+        if (dstFlows == null)
+          dstFlows = new ArrayList<>();
+        dstFlows.add(f);
+        flows.put(dstIp, dstFlows);
+      }
+    }
+    catch (IOException ex) {
+      ex.printStackTrace();
+    }
     return flows;
   }
 
@@ -380,22 +472,23 @@ public class Dataplane {
           .append("  else None\n\n");
 
       List<Prefix> matchingPrefixes = _preTrie.getLongestPrefixMatches(f.get_dstIp());
-      sb.append("let fwdOutTc").append(i).append(" e (fs : [C]option[flow])  =\n");
+
+      sb.append("let fwdOutTc").append(i).append(" e (fs : [C]option[flow]) =\n");
       Iterator<Prefix> it = matchingPrefixes.iterator();
       StringBuilder sbParen = new StringBuilder();
       while (it.hasNext()) {
         Prefix pre = it.next();
         sb.append("  match fwdOut (").append(_fa.ribName(pre)).append("[let (u~v) = e in u])")
             .append(" e fs with\n")
-            .append("  | Some (Some fs) -> Some fs\n")
-            .append("  | Some None -> None\n");
-        if (it.hasNext())
-        {
+            .append("  | Some (Some fs) -> Some fs\n");
+
+        if (it.hasNext()) {
+          sb.append("  | Some None -> None\n");
           sb.append("  | None -> (\n");
           sbParen.append(")");
         }
         else
-          sb.append("  | None -> None\n");
+          sb.append("  | _ -> None\n");
 
       }
       sb.append(sbParen);
@@ -416,6 +509,70 @@ public class Dataplane {
     sb.append(sbSols);
   }
 
+  /* Same as before, but groups traffic classes by destination instead of doing them
+    separately. This might not help with performance, we will have to test.
+   */
+  private void fwdInitPerDestination(StringBuilder sb, Map<Ip, List<Flow>> flowsPerDst) {
+    StringBuilder sbSols = new StringBuilder();
+    int i = 0;
+    for (Entry<Ip, List<Flow>> fs : flowsPerDst.entrySet()) {
+      List<Flow> flows = fs.getValue();
+
+      /* Generate init function */
+      sb.append("let initTC")
+          .append(i)
+          .append(" u =\n");
+      for (Flow f :flows) {
+        sb.append("  if (u = ")
+            .append(f.get_source())
+            .append("n) then\n")
+            .append("    Some (")
+            .append(f.compile())
+            .append(")\n")
+            .append("  else");
+      }
+      sb.append(" None\n\n");
+
+      /* Generate fwdOut function */
+
+      List<Prefix> matchingPrefixes = _preTrie.getLongestPrefixMatches(fs.getKey());
+
+      sb.append("let fwdOutTc").append(i).append(" e (fs : [C]option[flow]) =\n");
+      Iterator<Prefix> it = matchingPrefixes.iterator();
+      StringBuilder sbParen = new StringBuilder();
+      while (it.hasNext()) {
+        Prefix pre = it.next();
+        sb.append("  match fwdOut (")
+            .append(_fa.ribName(pre))
+            .append("[let (u~v) = e in u])")
+            .append(" e fs with\n")
+            .append("  | Some (Some fs) -> Some fs\n");
+
+        if (it.hasNext()) {
+          sb.append("  | Some None -> None\n");
+          sb.append("  | None -> (\n");
+          sbParen.append(")");
+        } else sb.append("  | _ -> None\n");
+      }
+      sb.append(sbParen);
+      sb.append("\n\n");
+
+      /* Generate calls to forward */
+      sbSols.append("forward (hVTc")
+          .append(i)
+          .append(",")
+          .append("hETc")
+          .append(i)
+          .append(") = (initTC")
+          .append(i)
+          .append(", fwdOutTc")
+          .append(i)
+          .append(", fwdIn, hinitV, hinitE, logV, logE, None)\n");
+      i++;
+    }
+
+    sb.append(sbSols);
+  }
 
   /* Utilizations are computed pairwise */
   private void capacityAssertions(StringBuilder sb, int nbFlows) {
@@ -438,50 +595,132 @@ public class Dataplane {
           .append(" e) +. hETc")
           .append(i+1).append("[e]\n\n");
     }
-    sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
+
+    for (Entry<Integer, GraphEdge> e : _idToEdge.entrySet()) {
+      sb.append("@noinline @log let linkUtilization_" + e.getKey() + " = linkUtilization")
+          .append(nbFlows - 2)
+          .append(" ")
+          .append(_edgeMap.get(e.getValue()))
+          .append("\n");
+    }
+    sb.append("\n");
+
+    for (Entry<Integer, GraphEdge> e : _idToEdge.entrySet()) {
+      sb.append("assert(\"Link(")
+          .append(e.getValue().asRouters())
+          .append(")\", (linkUtilization_" + e.getKey())
+          .append(" <. ").append(_linkCapacities.get(_edgeMap.get(e.getValue())))
+          .append("))\n");
+
+      //          .append(") && (linkUtilization")
+      //          .append(nbFlows - 2)
+      //          .append(" ")
+      //          .append(e.getValue())
+      //          .append(" >. 0.0")
+    }
+
+
+//    for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
+//      sb.append("assert(\"Link(")
+//          .append(e.getKey())
+//          .append("\", (linkUtilization")
+//          .append(nbFlows - 2)
+//          .append(" ")
+//          .append(e.getValue())
+//          .append(" <. ").append(_linkCapacities.get(e.getValue()))
+////          .append(") && (linkUtilization")
+////          .append(nbFlows - 2)
+////          .append(" ")
+////          .append(e.getValue())
+////          .append(" >. 0.0")
+//          .append("))\n");
+//    }
+  }
+
+  /* This method adds the individual histories and then the linkUtilization functions -
+  * Perhaps this means adding simpler ADDs on every step? */
+  private void capacityAssertionsAlt(StringBuilder sb, int nbFlows) {
+
+    sb.append("\n");
+    int i = 0;
+    int j = 0;
+    //TODO: handle 1 flow case.
+    for (i = 0; i < nbFlows-1; i=i+2) {
+      sb.append("@noinline let linkUtilization")
+          .append(j)
+          .append(" e = hETc")
+              .append(i)
+              .append("[e] +. hETc")
+              .append(i+1).append("[e]\n\n");
+      j++;
+    }
+
+    for (i = 0; i < j; i=i+1) {
+      sb.append("@noinline let linkUtilization")
+          .append(i+j)
+          .append(" e = (linkUtilization" + (i+j-1) + " e) +. (linkUtilization" + i + " e)\n");
+    }
 
     for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
       sb.append("assert(\"Link(")
           .append(e.getKey())
           .append("\", linkUtilization")
-          .append(nbFlows - 2)
+          .append(i+j - 1)
           .append(" ")
           .append(e.getValue())
-          .append(" <. 10000.0 | ord)\n");
+          .append(" <. ").append(_linkCapacities.get(e.getValue())).append(")\n");
+      //          .append(" <. 10000.0 | ord)\n");
     }
   }
 
-//  private void capacityAssertions(StringBuilder sb, int nbFlows) {
-//    sb.append("\nlet linkUtilization e =\n");
-//
-//    for (int i = 0; i < nbFlows-1; i++)
-//    {
-//      sb.append("hETc").append(i).append("[e] +. ");
-//    }
-//    sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
-//
-//    sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
-//
-//    for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
-//      sb.append("assert(\"Link(").append(e.getKey())
-//          .append("\", linkUtilization ")
-//          .append(e.getValue())
-//          .append(" <. 10000.0 | ord)\n");
-//    }
-//  }
+  //  private void capacityAssertions(StringBuilder sb, int nbFlows) {
+  //    sb.append("\nlet linkUtilization e =\n");
+  //
+  //    for (int i = 0; i < nbFlows-1; i++)
+  //    {
+  //      sb.append("hETc").append(i).append("[e] +. ");
+  //    }
+  //    sb.append("hETc").append(nbFlows-1).append("[e]\n\n");
+  //
+  //    sb.append(_fa.generateOrderingConstraints(_flags.getLinkFaultsBound()));
+  //
+  //    for (Entry<GraphEdge, String> e : _edgeMap.entrySet()) {
+  //      sb.append("assert(\"Link(").append(e.getKey())
+  //          .append("\", linkUtilization ")
+  //          .append(e.getValue())
+  //          .append(" <. 10000.0 | ord)\n");
+  //    }
+  //  }
+
 
   public String generateDataplane() {
     // Generate helper functions as above.
     StringBuilder sb = new StringBuilder();
 
-    sb.append("include \"")
-        .append("LinkFaults")
-        .append(_flags.getLinkFaultsBound())
-        .append("/")
-        .append(_fa.get_filename())
-        .append("_")
-        .append(_flags.getLinkFaultsBound())
-        .append("_linkFaults.nv\"\n\n");
+    if (_flags.getLinkFaultsBound() > 0) {
+      sb.append("include \"")
+          .append("LinkFaults")
+          .append(_flags.getLinkFaultsBound())
+          .append("/")
+          .append(_fa.get_filename())
+          .append("_")
+          .append(_flags.getLinkFaultsBound())
+          .append("_linkFaults.nv\"\n\n");
+    }
+    else {
+      // If this is the no fault case then include the control plane code and
+      // the solutions here
+      sb.append("include \"").append(_fa.get_filename()).append("_control.nv\"\n\n");
+
+      sb.append("let transMap d e (x : [M]attribute) = trans d e x\n\n");
+
+      for (Prefix pre : _originated) {
+        String solutionName = _fa.ribName(pre);
+        sb.append("solution ")
+            .append(solutionName)
+            .append(" = (init (").append(pre).append("), transMap (").append(pre).append("), merge)\n\n");
+      }
+    }
 
     // Add flow type
     sb.append(getAttributeType()).append("\n\n");
@@ -497,10 +736,23 @@ public class Dataplane {
     historyE(sb);
 
     // Add per-traffic class init/fwdOut and calls to forwarding.
-    List<Flow> flows = randomTrafficMatrix();
-    fwdInit(sb, flows);
+    //    List<Flow> flows = randomTrafficMatrix();
+    //    fwdInit(sb, flows);
 
-    capacityAssertions(sb, flows.size());
+    // Add per-destination init/fwdOut and calls to forwarding
+    Map<Ip, List<Flow>> flowsPerDst = tmgenMatrix();
+    fwdInitPerDestination(sb, flowsPerDst);
+    capacityAssertions(sb, flowsPerDst.size());
+//    capacityAssertionsAlt(sb, flowsPerDst.size());
+
+    // Do it per traffic class instead.
+//    List<Flow> flows = new ArrayList<>();
+//    for (List<Flow> fs : flowsPerDst.values()) {
+//      flows.addAll(fs);
+//      }
+//    fwdInit(sb, flows);
+//    capacityAssertions(sb, flows.size());
+
 
     return sb.toString();
   }

@@ -1,12 +1,9 @@
-/***********************/
+/**********************/
 /* All-faults analysis */
 /************************/
 
 package org.batfish.minesweeper.nv;
 
-import java.io.FileNotFoundException;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -14,9 +11,8 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Scanner;
 import java.util.Set;
-import java.io.File;
+import java.util.SortedMap;
 import org.batfish.datamodel.Prefix;
 import org.batfish.minesweeper.GraphEdge;
 import org.batfish.minesweeper.utils.Tuple;
@@ -37,15 +33,19 @@ public class FaultAnalysis {
   // Number of nodes
   private final Integer _vnum;
 
-  private Set<Prefix> _originated;
+  private final Set<Prefix> _originated;
 
-  private String _order;
+  private final String _order;
 
-  /* Link Failure Probabilities */
-  private Map<String, Double>  _linkFailureProbability;
+  /* Link Failure Probabilities - TODO: These are unused, if we only need edgeGroups then remove.*/
+  private final Map<String, Double>  _linkFailureProbability;
 
   /* Node Failure Probabilities */
-  private Map<String, Double> _nodeFailureProbability;
+  private final Map<String, Double> _nodeFailureProbability;
+
+  /* Set of links groupped by the failure of probability */
+  public final SortedMap<Double, Set<String>> _edgeGroups;
+
 
   public FaultAnalysis(
       String _filename,
@@ -54,7 +54,11 @@ public class FaultAnalysis {
       ArrayList<LinkedList<Integer>> adj,
       int vnum,
       Set<Prefix> originated,
-      String order) {
+      String order,
+      Map<String, Double> linkFailureProbability,
+      Map<String, Double> nodeFailureProbability,
+      SortedMap<Double, Set<String>> edgeGroups
+      ) {
     this._nodes = _nodes;
     this._edgeMap = _edgeMap;
     this._filename = _filename;
@@ -62,6 +66,9 @@ public class FaultAnalysis {
     this._vnum = vnum;
     this._originated = originated;
     this._order = order;
+    this._linkFailureProbability = linkFailureProbability;
+    this._nodeFailureProbability = nodeFailureProbability;
+    this._edgeGroups = edgeGroups;
   }
 
   public String get_filename() {
@@ -397,39 +404,260 @@ public class FaultAnalysis {
     return value;
   }
 
-  private void createBoundedLinkSymbolics(StringBuilder sb, int bound) {
-    int numberOfEdges = _edgeMap.size();
-    double nofailureProb = 0.9995;
-    int bits = numberOfBits(bound);
-    sb.append("symbolic failures : int").append(bits).append(" =\n");
-    for (int i = 0; i <= bound; i++) {
-      double probabilityOfI = binomCoeff(numberOfEdges, i) * Math.pow(nofailureProb, _edgeMap.size()-i) * Math.pow(1-nofailureProb,i);
-      sb.append("  | [")
-          .append(i)
-          .append("u")
-          .append(bits)
-          .append(", ")
-          .append(i)
-          .append("u")
-          .append(bits)
-          .append("] -> ")
-          .append(String.format("%.16f", probabilityOfI))
-          .append("p\n");
+//  private void createBoundedLinkSymbolics(StringBuilder sb, int bound) {
+//    int numberOfEdges = _edgeMap.size();
+//    double nofailureProb = 0.9995;
+//    int bits = numberOfBits(bound);
+//    sb.append("symbolic failures : int").append(bits).append(" =\n");
+//    for (int i = 0; i <= bound; i++) {
+//      double probabilityOfI = binomCoeff(numberOfEdges, i) * Math.pow(nofailureProb, _edgeMap.size()-i) * Math.pow(1-nofailureProb,i);
+//      sb.append("  | [")
+//          .append(i)
+//          .append("u")
+//          .append(bits)
+//          .append(", ")
+//          .append(i)
+//          .append("u")
+//          .append(bits)
+//          .append("] -> ")
+//          .append(String.format("%.16f", probabilityOfI))
+//          .append("p\n");
+//    }
+//    sb.append("  | _ -> 0.0p\n\n");
+//    for (int i = 0; i < bound; i++) {
+//      sb.append("symbolic ").append(boundedSymbolicName(i)).append(" : tedge\n");
+//    }
+//  }
+
+  private double listProbability(ArrayList<Integer> xs, double probabilityOfNoFailure, ArrayList<Tuple<Double, Set<String>>> groups) {
+    // Index to count
+    Map<Integer, Integer> ys = new HashMap<>();
+    for (Integer x : xs) {
+      Integer freq = ys.get(x);
+      if (freq == null)
+        ys.put(x,1);
+      else
+        ys.put(x, freq+1);
     }
-    sb.append("  | _ -> 0.0p\n\n");
-    for (int i = 0; i < bound; i++) {
-      sb.append("symbolic ").append(boundedSymbolicName(i)).append(" : tedge\n");
+
+    double prob = probabilityOfNoFailure;
+    for (Entry<Integer, Integer> y : ys.entrySet()) {
+      Tuple<Double, Set<String>> group = groups.get(y.getKey());
+      // Computing binom(|group|, cardinality) * p(i) * (1-p(i))^(-cardinality) * ... * nofailureProb.
+//      System.out.println("Coeff: " + binomCoeff(group.getSecond().size(), y.getValue()));
+      prob = prob * binomCoeff(group.getSecond().size(), y.getValue()) * (Math.pow(group.getFirst(), y.getValue()))
+            * (Math.pow(1-group.getFirst(), -y.getValue()));
+    }
+    return prob;
+  }
+
+  // Creating symbolics for bounded link failures using joint distributions
+  private void createBoundedLinkSymbolics(StringBuilder sb, boolean conditional, int bound) {
+    int numberOfEdges = _edgeMap.size();
+    int numberOfGroups = _edgeGroups.size();
+
+
+    // Compute the probability that no failure occurs
+    double probabilityOfNoFailure = 1.0;
+    for (Entry<Double, Set<String>> e : _edgeGroups.entrySet()) {
+      probabilityOfNoFailure = probabilityOfNoFailure * Math.pow(1 - e.getKey(), e.getValue().size());
+    }
+
+    /* Compute the probability that at most [bound] failures occur. */
+
+    /*  This will be P(At-Most-k) = P(0-failures) + P(1-failure) + .. P(k-failures)
+    * It is rather tricky to compute this when links have different failure probabilities.
+    * The idea we use is the following:
+    * 1. Make a matrix where the ith row contains the valid failure combinations for (i+1) failures.
+    * 2. These combinations are expressed as lists containing the index of the group belonging to this combination.
+    * 3. Since these are lists multiple elements are allowed. For instance, [0,0] means the first group has 2 failed links.
+    * 4. Computing the probability for a single list [i,j,i] we use the following rules:
+    *     * binom(|i|, 2) * p(i) * (1-p(i))^(-2) * |j| * (1-p(j))^-1 * nofailureProb.
+    *  */
+
+    ArrayList<ArrayList<ArrayList<Integer>>> matrix = new ArrayList<>();
+    ArrayList<ArrayList<Integer>> baseRow = new ArrayList<>();
+
+    // populate base row (i.e. for 1 failure)
+    int numGroups = _edgeGroups.size();
+
+    for (int i = 0; i < numGroups; i++)
+    {
+      ArrayList<Integer> elt = new ArrayList<>();
+      elt.add(i);
+      baseRow.add(elt);
+    }
+
+    matrix.add(baseRow);
+
+    // Note that matrix[i] corresponds to probability i+1 failures occur.
+    for (int i = 1; i < bound; i++) {
+      ArrayList<ArrayList<Integer>> currentRow = new ArrayList<>();
+      ArrayList<ArrayList<Integer>> rowOne = matrix.get(0);
+      ArrayList<ArrayList<Integer>> rowPrev = matrix.get(i-1);
+
+      for (int j = 0; j < rowOne.size(); j++) {
+        for (int k = j; k < rowPrev.size(); k++) {
+          ArrayList<Integer> kElt = rowPrev.get(k);
+          // if the first elt of base row is less or equal than the first elt of the previous row.
+          if (rowOne.get(j).get(0) <= kElt.get(0)) {
+            ArrayList<Integer> curElt = new ArrayList<>(kElt);
+            curElt.add(0, rowOne.get(j).get(0));
+            // curElt = [b[j]; prev]
+            currentRow.add(0,curElt);
+          }
+        }
+      }
+      matrix.add(currentRow);
+    }
+
+    // Represent _edgeGroups as an arraylist.
+
+    ArrayList<Tuple<Double, Set<String>>> groups = new ArrayList<>();
+
+    for (Entry<Double, Set<String>> e: _edgeGroups.entrySet()) {
+      Tuple<Double, Set<String>> t = new Tuple<>(e.getKey(),e.getValue());
+      groups.add(t);
+    }
+
+    // Holds the probability that at most bound failures occur.
+    double probabilityAtMostKFailed = probabilityOfNoFailure;
+
+    // Iterate each line of the matrix
+    for (ArrayList<ArrayList<Integer>> row : matrix) {
+      for (ArrayList<Integer> xs : row) {
+        probabilityAtMostKFailed += listProbability(xs, probabilityOfNoFailure, groups);
+      }
+    }
+
+
+
+    /* For the no failure case we need to divide by edges^m because of our semantics in
+     ProbNV (it will be multiplied by the same number) */
+    double probabilityOfNoFailureNormalized = probabilityOfNoFailure / Math.pow(numberOfEdges,bound);
+
+
+    /* Emit failureProb function that describes the probability of each link failure individually.
+      For every group this will be (p * (1-p)^-1).
+     */
+
+    sb.append("let failureProb (f : [S]tedge) =\n");
+    int groupId = 0;
+    Iterator<Entry<Double, Set<String>>> iter = _edgeGroups.entrySet().iterator();
+    for (int i = 0; i <= numberOfGroups - 1; i++) {
+      Entry<Double, Set<String>> e = iter.next();
+      Double probabilityOfFailure = e.getKey();
+      Double probabilityForGroup = probabilityOfFailure * (1.0 / (1 - probabilityOfFailure));
+      if (i == numberOfGroups - 1) {
+        sb.append(String.format("  %.16f\n\n", probabilityForGroup));
+      } else {
+        groupId = groupId + e.getValue().size();
+        sb.append("  if (f <e ")
+            .append(groupId)
+            .append("e")
+            .append(") then\n")
+            .append(String.format("%.16f\n", probabilityForGroup))
+            .append("  else\n");
+      }
+    }
+
+    // Emit the symbolics definition and distribution.
+
+    StringBuilder sbSymbolics = new StringBuilder();
+    StringBuilder sbTypes = new StringBuilder();
+
+    sbSymbolics.append("(hasFailures, ");
+    sbTypes.append("(bool, ");
+    for (int i = 1; i <= bound; i++) {
+      sbSymbolics.append(boundedSymbolicName(i));
+      sbTypes.append("tedge");
+      if (i < bound) {
+        sbSymbolics.append(", ");
+        sbTypes.append(", ");
+      }
+    }
+    sbSymbolics.append(")");
+    sbTypes.append(")");
+
+    sb.append("symbolic ").append(sbSymbolics).append(" : ").append(sbTypes).append(" =\n");
+    sb.append("  if (hasFailures = false) then\n")
+        .append(String.format("    %.16f\n", conditional ? probabilityOfNoFailureNormalized / probabilityAtMostKFailed : probabilityOfNoFailureNormalized ));
+    sb.append("  else\n");
+
+    if (bound == 1) {
+      sb.append("      ");
+      sb.append("(failureProb ").append(boundedSymbolicName(1)).append(")");
+      sb.append(" *. ");
+      // Multiply by probability of no failure.
+      sb.append(String.format("%.16f\n\n", conditional ? probabilityOfNoFailure / probabilityAtMostKFailed : probabilityOfNoFailure));
+    } else {
+      for (int i = bound; i > 0; i--) {
+        sb.append("    if ");
+        // Generate less-than constraints
+        for (int j = 1; j < i; j++) {
+          sb.append("(")
+              .append(boundedSymbolicName(j))
+              .append(" <e ")
+              .append(boundedSymbolicName(j + 1))
+              .append(")");
+
+          if (j + 1 < i) sb.append(" && ");
+        }
+
+        // In this case both less-than and eq constraints will be generated so we need an extra &&.
+        if (i > 1 && i < bound) {
+          sb.append(" && ");
+        }
+
+        // Generating equality constraints
+        for (int j = i; j < bound; j++) {
+          sb.append("(")
+              .append(boundedSymbolicName(j))
+              .append(" = ")
+              .append(boundedSymbolicName(j + 1))
+              .append(")");
+          if (j + 1 < bound) sb.append(" && ");
+        }
+
+        // Generate probability for this case
+
+        sb.append(" then\n");
+        for (int j = 1; j <= i; j++) {
+          if (j == 1) sb.append("      ");
+          sb.append("(failureProb ").append(boundedSymbolicName(j)).append(")");
+          sb.append(" *. ");
+        }
+
+        // Multiply by probability of no failure.
+        sb.append(String.format("%.16f\n", conditional ? probabilityOfNoFailure / probabilityAtMostKFailed : probabilityOfNoFailure));
+
+        sb.append("    else\n");
+      }
+      sb.append("      0.0");
+      sb.append("\n");
     }
   }
 
+//  public String failureCondition(int bound) {
+//    StringBuilder sb = new StringBuilder();
+//    sb.append("(failures >u").append(numberOfBits(bound)).append(" 0u")
+//        .append(numberOfBits(bound))
+//        .append(") && ((")
+//        .append(boundedSymbolicName(0)).append(" = e)");
+//    for (int i = 1; i < bound; i++) {
+//      sb.append("|| (").append(boundedSymbolicName(i)).append(" = e)");
+//    }
+//    sb.append(")");
+//    return sb.toString();
+//  }
+
   public String failureCondition(int bound) {
     StringBuilder sb = new StringBuilder();
-    sb.append("(failures >u").append(numberOfBits(bound)).append(" 0u")
-        .append(numberOfBits(bound))
-        .append(") && ((")
-        .append(boundedSymbolicName(0)).append(" = e)");
-    for (int i = 1; i < bound; i++) {
-      sb.append("|| (").append(boundedSymbolicName(i)).append(" = e)");
+    sb.append("hasFailures")
+        .append(" && ((")
+        .append(boundedSymbolicName(1)).append(" = e)");
+    for (int i = 2; i <= bound; i++) {
+      sb.append(" || (").append(boundedSymbolicName(i)).append(" = e)");
     }
     sb.append(")");
     return sb.toString();
@@ -510,68 +738,14 @@ public class FaultAnalysis {
     return "rib_" + pre.toString().replace('.', '_').replace('/', '_');
   }
 
-//  private String convertToCSV(String[] data) {
-//    return Stream.of(data)
-//        .map(this::escapeSpecialCharacters)
-//        .collect(Collectors.joining(","));
-//  }
-//
-  private void writeFailureProbabilities(File csvFile) throws IOException {
 
-    FileWriter csvWriter = new FileWriter(csvFile);
-
-    for (GraphEdge e : _edgeMap.keySet()) {
-      csvWriter.append("link,").append(String.valueOf(e)).append(",").append("0.005");
-      csvWriter.append("\n");
-    }
-
-    for (String e : _nodes.keySet()) {
-      csvWriter.append("node,").append(String.valueOf(e)).append(",").append("0.01");
-      csvWriter.append("\n");
-    }
-
-    csvWriter.flush();
-    csvWriter.close();
-  }
-
-  /* Parse the failure probability of each link/device. If the file does not exist/create it.
-  *  Expected format is type_of_failure, name, probability */
-  private void parseFailureProbabilities(String file)  {
-    File csvFile = new File(file);
-    if (csvFile.isFile() && csvFile.canRead()) {
-      try (Scanner scanner = new Scanner (csvFile)) {
-
-        // CSV file delimiter
-        String DELIMITER = ",";
-
-        // set comma as delimiter
-        scanner.useDelimiter(DELIMITER);
-
-        String type = scanner.next();
-        String name = scanner.next();
-        String prob = scanner.next();
-
-        if (type.equals("link"))  {
-          _linkFailureProbability.put(name, new Double(prob));
-        }
-        else if (type.equals("node")) {
-          _nodeFailureProbability.put(name, new Double(prob));
-        }
-      }
-    catch (FileNotFoundException _) {
-      System.out.println("File not found - generating a default failure model.");
-
-      }
-    }
-  }
-
-  public Tuple<String, Map<Prefix, String>> compiledBoundedLinkFaults(
-      boolean singlePrefix, int bound, boolean partitioned) {
+  public Tuple<String, Map<Prefix, String>> compileBoundedLinkFaults(
+      boolean conditional, int bound, boolean partitioned) {
     StringBuilder sb = new StringBuilder();
     sb.append("include \"../").append(_filename).append("_control.nv").append("\"\n\n");
 
     // sb.append(createLinkSymbolics());
-    createBoundedLinkSymbolics(sb, bound);
+    createBoundedLinkSymbolics(sb, conditional, bound);
     sb.append("\n");
 
     sb.append("let mergeLinkFaults u (x : [M]attribute) (y : [M]attribute) =\n")

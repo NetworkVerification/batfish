@@ -35,31 +35,42 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
     public AnswerElement answer() {
       CompileQuestion q = (CompileQuestion) _question;
       CompilerOptions flags = new CompilerOptions();
+      /* Model the nexthop? */
       if (((CompileQuestion) _question).getNextHop()) {
         flags.setFlag(NVFlags.nexthop);
       }
+      /* Model the origin of the route? - might be outdated and not working*/
       if (((CompileQuestion) _question).getOrigin()) {
         flags.setFlag(NVFlags.origin);
       }
+      /* Model the dataplane? */
       if (((CompileQuestion) _question).getData()) {
         flags.setFlag(NVFlags.dataplane);
       }
+      /* Model all node failures? */
       if (((CompileQuestion) _question).getNodeFaults()) {
         flags.setFlag(NVFlags.nodeFaults);
       }
+      /* Model the AS Set */
       if (((CompileQuestion) _question).getASPath()) {
         flags.setFlag(NVFlags.asPath);
       }
+      /* Model ECMP? */
       if (((CompileQuestion) _question).getMultiPath()) {
         flags.setFlag(NVFlags.multiPath);
       }
+      /* Model bounded failures? */
       if (((CompileQuestion) _question).getBoundedFaults() != 0) {
         flags.setFlag(NVFlags.boundedLinkFaults);
         flags.setLinkFaultsBound(((CompileQuestion) _question).getBoundedFaults());
       }
+      /* Use conditional probability model, i.e. given that up to K failures happen */
+      if (((CompileQuestion) _question).get_conditional()) {
+        flags.setFlag(NVFlags.conditionalFailures);
+      }
       flags.setSymbolicOrder(((CompileQuestion) _question).getSymbolicOrder());
 
-      NVCompiler c = new NVCompiler(_batfish, q.getFile(), flags);
+      NVCompiler c = new NVCompiler(_batfish, q.getFile(), q.get_topologyModel(), flags);
       CompilerResult f = c.compile(q.getSinglePrefix());
       String cpComment = "(* models bgp, ospf, static routes" +
                         (flags.doNextHop() ? ", nexthop" : "") +
@@ -149,7 +160,12 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
 
     private static final String PROP_FILE = "file";
 
+    /* For info about topology such as node/link failures and capacity*/
+    private static final String PROP_TOPOLOGY_INFO = "topologyModel";
+
     private static final String PROP_SYMBOLIC_ORDER = "symbolicOrder";
+    private static final String PROP_CONDITIONAL = "conditionalFailures";
+    private static final String PROP_TM = "trafficMatrix";
 
     private boolean _nextHop = false;
 
@@ -165,9 +181,25 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
 
     private int _doBoundedLinkFaults = 0;
 
+    private boolean _conditional = true;
+
     private String _symbolicOrder = "default";
 
     private String _file = "";
+
+    private String _trafficMatrix = "random";
+
+    private String _topologyModel = "";
+
+    @JsonProperty(PROP_TM)
+    public String getTrafficMatrix() {
+      return _trafficMatrix;
+    }
+
+    @JsonProperty(PROP_TM)
+    public void setTrafficMatrix(String _trafficMatrix) {
+      this._trafficMatrix = _trafficMatrix;
+    }
 
     @JsonProperty(PROP_NEXTHOP)
     public boolean getNextHop() {
@@ -210,6 +242,21 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
       return _file;
     }
 
+    @JsonProperty(PROP_TOPOLOGY_INFO)
+    public String get_topologyModel() {
+      return _topologyModel;
+    }
+
+    @JsonProperty(PROP_CONDITIONAL)
+    public boolean get_conditional() {
+      return _conditional;
+    }
+
+    @JsonProperty(PROP_CONDITIONAL)
+    public void set_conditional(boolean x) {
+      _conditional = x;
+    }
+
     @JsonProperty(PROP_NEXTHOP)
     public void setNextHop(boolean x) {
       this._nextHop = x;
@@ -237,6 +284,11 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
     @JsonProperty(PROP_FILE)
     public void setFile(String x) {
       this._file = x;
+    }
+
+    @JsonProperty(PROP_TOPOLOGY_INFO)
+    public void set_topologyModel(String _topologyModel) {
+      this._topologyModel = _topologyModel;
     }
 
     @JsonProperty(PROP_SYMBOLIC_ORDER)

@@ -2,6 +2,9 @@ package org.batfish.minesweeper.nv;
 
 import static org.batfish.minesweeper.Graph.getFirstOspfProcess;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -12,13 +15,16 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Scanner;
 import java.util.Set;
+import java.util.SortedMap;
 import java.util.SortedSet;
+import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import org.batfish.common.plugin.IBatfish;
 import org.batfish.datamodel.BgpProcess;
 import org.batfish.datamodel.Configuration;
-import org.batfish.datamodel.GeneratedRoute;
 import org.batfish.datamodel.Interface;
 import org.batfish.datamodel.Prefix;
 import org.batfish.datamodel.ospf.OspfArea;
@@ -32,21 +38,21 @@ import org.batfish.minesweeper.collections.Table2;
 import org.batfish.minesweeper.utils.Tuple;
 
 /* Assumptions.
-* 1. So far we do not model iBGP, hence our BGP routes do not include IGP/EGP modifier.
-* 2. For multipath we always assume that multipath-as-relax is enabled for BGP. Also the number of
-*    equivalent paths is always ignored
-* 3. We do not model AS PATH string; we do model AS PATH as a set that is useful to detect loops.
-*    Note however, that this AS PATH will only correspond to one route when multipath is enabled
-*    hence loops may still occur (this is how BGP works in practice too I think).
-* */
+ * 1. So far we do not model iBGP, hence our BGP routes do not include IGP/EGP modifier.
+ * 2. For multipath we always assume that multipath-as-relax is enabled for BGP. Also the number of
+ *    equivalent paths is always ignored
+ * 3. We do not model AS PATH string; we do model AS PATH as a set that is useful to detect loops.
+ *    Note however, that this AS PATH will only correspond to one route when multipath is enabled
+ *    hence loops may still occur (this is how BGP works in practice too I think).
+ * */
 
 
 class InitialAttribute {
-  private Boolean _conn;
-  private Boolean _static;
-  private Optional<Long> _areaId;
-  private Boolean _bgp;
-  private CompilerOptions _flags;
+  private final Boolean _conn;
+  private final Boolean _static;
+  private final Optional<Long> _areaId;
+  private final Boolean _bgp;
+  private final CompilerOptions _flags;
 
   public InitialAttribute(Boolean conn, Boolean stat, Optional<Long> areaId, Boolean bgp, CompilerOptions flags) {
     _conn = conn;
@@ -67,21 +73,86 @@ class InitialAttribute {
     }
     String b = _bgp ?
         attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", node + "n", "{}") : "None";
-    sb.append("    let c = ")
+
+    if (!c.equals("None"))
+    { sb.append("      let c = ")
         .append(c)
-        .append(" in\n")
-        .append("    let s = ")
-        .append(s)
-        .append(" in\n")
-        .append("    let o = ")
-        .append(o)
-        .append(" in\n")
-        .append("    let b = ")
-        .append(b)
-        .append(" in\n")
-        .append("    let fib = best c s o b in\n");
+        .append(" in\n");
+    }
+    if (!s.equals("None")) {
+      sb.append("      let s = ")
+          .append(s)
+          .append(" in\n");
+    }
+    if (!o.equals("None")) {
+      sb.append("      let o = ")
+          .append(o)
+          .append(" in\n");
+    }
+    if (!b.equals("None")) {
+      sb.append("      let b = ")
+          .append(b)
+          .append(" in\n");
+    }
+    sb.append("      let fib = best ");
+    if (c.equals("None")) {
+      sb.append("None ");
+    } else {
+      sb.append("c ");
+    }
+
+    if (s.equals("None")) {
+      sb.append("None ");
+    } else {
+      sb.append("s ");
+    }
+
+    if (o.equals("None")) {
+      sb.append("None ");
+    } else {
+      sb.append("o ");
+    }
+
+    if (b.equals("None")) {
+      sb.append("None ");
+    } else {
+      sb.append("b ");
+    }
+    sb.append("in\n");
+
+    //        sb.append("    let fib = best c s o b in\n");
     if (singlePrefix) {
-      sb.append("      {connected=c; static=s; ospf=o; bgp=b; selected=fib;}\n");
+      sb.append("      {connected= ");
+      if (c.equals("None")) {
+        sb.append("None");
+      } else {
+        sb.append("c");
+      }
+
+      sb.append("; static = ");
+
+      if (s.equals("None")) {
+        sb.append("None");
+      } else {
+        sb.append("s");
+      }
+
+      sb.append("; ospf = ");
+
+      if (o.equals("None")) {
+        sb.append("None");
+      } else {
+        sb.append("o");
+      }
+
+      sb.append("; bgp = ");
+
+      if (b.equals("None")) {
+        sb.append("None");
+      } else {
+        sb.append("b");
+      }
+      sb.append("; selected=fib;}\n");
     } else {
       sb.append("    let route = {connected=c; static=s; ospf=o; bgp=b; selected=fib;} in\n");
     }
@@ -113,31 +184,67 @@ class InitialAttribute {
 
 public class NVCompiler {
 
-  private Graph _graph;
-  private Map<GraphEdge, String> _edgeMap;
-  private Map<String, Integer> _nodeAssignment;
+  private final IBatfish _batfish;
+  private final Graph _graph;
+  private final Map<GraphEdge, String> _edgeMap;
+  private final Map<String, GraphEdge> _reverseEdgeMap;
+  private final Map<String, Integer> _nodeAssignment;
   private ArrayList<LinkedList<Integer>> _adj; //Adjacency list for nv edges;
 
-  private SortedSet<Prefix> _originated; // Originated BGP and OSPF prefixes
-  private SortedSet<Prefix> _hosts; // Originated prefixes belonging to hosts
-  private Map<Integer, Set<Prefix>> _perNodePrefixes; // associated a set of prefixes to every node.
+  private final SortedSet<Prefix> _originated; // Originated BGP and OSPF prefixes
+  private final SortedSet<Prefix> _hosts; // Originated prefixes belonging to hosts
+  private final Map<Integer, Set<Prefix>> _perNodePrefixes; // associated a set of prefixes to every node.
 
-  // Filename of the main network file, i.e. most likely the one describing the control plane.
-  private String _filename;
 
-  private CompilerOptions _flags;
-  private Attributes _attrs;
+  /* Link Capacities from the GraphEdge name to capacity.*/
+  private final Map<String, Double>  _linkCapacities;
 
-  public NVCompiler(IBatfish batfish, String filename, CompilerOptions flags) {
+  /* Link Failure Probabilities */
+  private final Map<String, Double>  _linkFailureProbability;
+
+  /* Node Failure Probabilities */
+  private final Map<String, Double> _nodeFailureProbability;
+
+  /* Set of links groupped by the failure of probability */
+  private final SortedMap<Double, Set<String>> _edgeGroups;
+
+  /* Set of nodes groupped by the failure of probability */
+  private final SortedMap<Double, Set<String>> _nodeGroups;
+
+  /* Mapping edge to edge id */
+  private final Map<GraphEdge, Integer> _edgeIds;
+
+  /* Mapping edge_id to edge */
+  private final SortedMap<Integer, GraphEdge> _idToEdge;
+
+  // Filename of the main network file.
+  private final String _filename;
+
+  private final String _topologyModel;
+
+  private final CompilerOptions _flags;
+  private final Attributes _attrs;
+
+  public NVCompiler(IBatfish batfish, String filename, String topologyModel, CompilerOptions flags) {
+    _batfish = batfish;
     _graph = new Graph(batfish);
     _flags = flags;
     _attrs = new Attributes(flags);
     _edgeMap = new HashMap<>();
+    _reverseEdgeMap = new HashMap<>();
     _nodeAssignment = new HashMap<>();
     _originated = new TreeSet<>();
     _hosts = new TreeSet<>();
     _perNodePrefixes = new HashMap<>();
+    _linkCapacities = new HashMap<>();
+    _linkFailureProbability = new HashMap<>();
+    _nodeFailureProbability = new HashMap<>();
+    _edgeIds = new HashMap<>();
+    _idToEdge = new TreeMap<>();
+    _edgeGroups = new TreeMap<>();
+    _nodeGroups = new TreeMap<>();
     _filename = filename;
+    _topologyModel = topologyModel;
   }
 
   private String optionType(String typ) {
@@ -148,17 +255,19 @@ public class NVCompiler {
     return "dict["+keyTyp+", "+ valTyp+"]";
   }
 
-  // Fixing this only for simulator right now.
+  /* Groups policies that are equivalent and generates a single function for them instead of
+  *  emitting the same policy multiple times. (*/
   private Tuple<Map<GraphEdge, String>,Map<GraphEdge, String>> computeEquivalentPolicies(
-      StringBuilder sb,
-      Table2<String, Protocol, Set<Protocol>> redistributionTable,
-      Aggregation agg
-      ) {
+      StringBuilder sb
+  ) {
 
     Set<String> bgpSet = new HashSet<>();
+
+    //Maps policy expression (as an NV string) to a unique name.
     Map<String, String> compiledExportPolicies = new HashMap<>();
     Map<String, String> compiledImportPolicies = new HashMap<>();
 
+    // Maps the policy applied over this GraphEdge to the unique name of the policy.
     Map<GraphEdge, String> edgeToImportPolicy = new HashMap<>();
     Map<GraphEdge, String> edgeToExportPolicy = new HashMap<>();
 
@@ -167,22 +276,22 @@ public class NVCompiler {
       String router = entry.getKey();
       Configuration config = entry.getValue();
 
-      // Compute redistribution of other protocols into BGP for this router
-      Map<Protocol, String> redistAttrs = redistributeIntoBgp("route", redistributionTable, router);
-
-      // Get aggregate routes for this router.
-
-      List<GeneratedRoute> aggregates = agg.getAggregates().get(router);
-      Set<Prefix> suppresed = agg.getSuppressedAggregates().get(router);
-      Map<GeneratedRoute, Set<Prefix>> contributing = agg.getContributing();
+      /*
+       //XXX: Ignoring aggregation for now.
+       //Get aggregate routes for this router.
+            List<GeneratedRoute> aggregates = agg.getAggregates().get(router);
+            Set<Prefix> suppresed = agg.getSuppressedAggregates().get(router);
+            Map<GeneratedRoute, Set<Prefix>> contributing = agg.getContributing();
+      */
 
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
             bgpSet.add(_edgeMap.get(edge));
 
+            StringBuilder exportString = new StringBuilder();
 
-            // Doing export policy
+            // Compiling the export policy for the given edge.
             RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
             List<Statement> statements;
             if ((policy != null) && (policy.getStatements() != null)) {
@@ -191,120 +300,89 @@ public class NVCompiler {
               statements = Collections.emptyList();
             }
 
-            // Have we already compiled this policy?
-       //     if (!compiledExportPolicies.containsKey(statements)) {
-              // Build the decision tree for the export policy
-              TransferFunctionBuilder exportTransBuilder =
-                  new TransferFunctionBuilder(config, statements, edge, true);
-              DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
+            /* Emit the NV code to handle redistribution into BGP */
+
+            exportString.append("      match b with\n")
+                .append("      | None -> None\n")
+                .append("      | Some b ->\n");
+            /* If AS Path is tracked then check for AS loops */
+            if (_flags.doASPath()) {
+              exportString.append("        if (let (u~v) = e in b.bgpAS[v]) then None else\n");
+            }
+
+            /* Set the nexthop appropriately */
+            if (_flags.doNextHop()) {
+              bgpNextHop(exportString);
+            }
+
+            // Build the decision tree for the export policy
+            TransferFunctionBuilder exportTransBuilder =
+                new TransferFunctionBuilder(config, statements, edge, true);
+            DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
 
 
-            // Apply some basic optimizations
-              //exportTree.optimize();
+            // Apply some basic optimizations - NOTE: I think there is some bug in this code so disabling it for now.
+            //exportTree.optimize();
 
 
-              /* Build NV string that corresponds to export tree */
+            /* Build NV string that corresponds to export tree */
             TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
 
-            List<Tuple<String, String>> expPolicies = exportTreeCompiler.toNvStrings();
+            String expPolicy = exportTreeCompiler.toNvString();
+            exportString.append(expPolicy);
 
-
-
-
-
-            StringBuilder exportString = new StringBuilder();
-              int numberOfPolicies = expPolicies.size();
-
-              // Add aggregation explicitly.
+            /* Route Aggregation - Disabled I think it only works with multiple prefixes right now. */
+            // Add aggregation explicitly.
               /* TODO: this assumes that the default route components are set and no route-maps are applied over aggregates.
                  The former should be easy to do, but i can't figure it out through batfish millions of classes.
                */
 
-              for (GeneratedRoute aggregate : aggregates) {
-                Prefix p = aggregate.getNetwork();
-                exportString.append("   let x = mapIf (fun p -> p = ")
-                .append(p).append(") (fun v -> \n")
-                .append("      match v.bgp with\n)")
-                .append("      | None -> \n")
-                .append("        if (");
+//            for (GeneratedRoute aggregate : aggregates) {
+//              Prefix p = aggregate.getNetwork();
+//              exportString.append("   let x = mapIf (fun p -> p = ")
+//                  .append(p).append(") (fun v -> \n")
+//                  .append("      match v.bgp with\n)")
+//                  .append("      | None -> \n")
+//                  .append("        if (");
+//
+//              boolean notFirst = false;
+//              for (Prefix contributor : contributing.get(aggregate)) {
+//                if (notFirst) {
+//                  exportString.append(" || ");
+//                }
+//                notFirst = true;
+//                exportString.append("(x[")
+//                    .append(contributor)
+//                    .append("].selected = 3u2)");
+//              }
+//              exportString.append(") then ")
+//                  .append("{v with bgp= ")
+//                  .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"))
+//                  .append(" else None\n")
+//                  .append("      | Some _ -> v) x in\n");
+//
+//            }
+//
+//            // TODO: suppress routes.
 
-                boolean notFirst = false;
-                for (Prefix contributor : contributing.get(aggregate)) {
-                  if (notFirst) {
-                    exportString.append(" || ");
-                  }
-                  notFirst = true;
-                  exportString.append("(x[")
-                      .append(contributor)
-                      .append("].selected = 3u2)");
-                }
-                exportString.append(") then ")
-                    .append("{v with bgp= ")
-                    .append(_attrs.buildBgpAttribute("100","20u8","0","80","{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"))
-                    .append(" else None\n")
-                    .append("      | Some _ -> v) x in\n");
-
-              }
-
-              // TODO: suppress routes.
-
-              // If there is only one policy there is no branching on prefixes just map the policy.
-              if (numberOfPolicies == 1) {
-                exportString.append("     map (bgpRouteExport e (fun prot b -> \n")
-                    .append("           ")
-                    .append(expPolicies.get(0).getSecond())
-                    .append(") redistributeIntoBgp) x\n\n");
-              } else {
-                for (int idx = 0; idx < numberOfPolicies; idx++) {
-                  exportString.append("     let x =\n")
-                      .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
-                          + "                   ")
-                      .append(expPolicies.get(idx).getFirst())
-                      .append(")\n")
-                      .append("         (bgpRouteExport e (fun prot b ->\n")
-                      .append("               ")
-                      .append(expPolicies.get(idx).getSecond())
-                      .append(") redistributeIntoBgp) x\n")
-                      .append("    in\n");
-                }
-                exportString.append("     x\n\n");
-              }
-
-              // Add to string.
-              String expPolicyName = compiledExportPolicies.get(exportString.toString());
-              if (expPolicyName == null) {
-                expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
-                String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
-                                   "     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
-                String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
-                                   "     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
-                String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
-                                   "     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
-                sb.append("let ").append(expPolicyName).append(" e x =\n");
-                // Don't bother writing a match if it would be trivial
-                if (connected.equals("") && stat.equals("") && ospf.equals("")) {
-                  sb.append("  (* No redistribution into BGP configured *)\n")
-                    .append("   let redistributeIntoBgp route = route.bgp in\n");
-                } else {
-                  sb.append("  (* Handling redistribution into BGP *)\n")
-                    .append("   let redistributeIntoBgp route =\n")
-                    .append("     match route.selected with\n")
-                    .append(connected)
-                    .append(stat)
-                    .append(ospf)
-                    .append("     | _ -> route.bgp\n")
-                    .append("   in\n");
-                  }
-                sb.append(exportString.toString());
-                compiledExportPolicies.put(exportString.toString(), expPolicyName);
-              }
-              edgeToExportPolicy.put(edge, expPolicyName);
+            // Add to string.
+            String expPolicyName = compiledExportPolicies.get(exportString.toString());
+            if (expPolicyName == null) {
+              /* If this policy has not been encountered before then create an NV function for it */
+              expPolicyName = "bgpExportPol" + compiledExportPolicies.size();
+              sb.append("let " + expPolicyName + " e prefix prefixLen prot b =\n");
+              sb.append(exportString.toString());
+              sb.append("\n\n");
+              compiledExportPolicies.put(exportString.toString(), expPolicyName);
+            }
+            edgeToExportPolicy.put(edge, expPolicyName);
 
 
-            // Do import policy
+            /* Process the import policy */
             List<Statement> importStatements;
             GraphEdge invEdge = _graph.getOtherEnd().get(edge);
 
+            String impPolicy = "b";
             if (invEdge != null) {
               String otherRouter = invEdge.getRouter();
               RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter,
@@ -315,117 +393,112 @@ public class NVCompiler {
 
                 importStatements = importPolicy.getStatements();
                 //if (!compiledImportPolicies.containsKey(importStatements)) {
-                  TransferFunctionBuilder importTransBuilder = new TransferFunctionBuilder(invConfig,
+                TransferFunctionBuilder importTransBuilder = new TransferFunctionBuilder(invConfig,
                     importStatements,
                     invEdge,
                     false);
 
-                  DecisionTree<Boolean> importTree = importTransBuilder.compute();
+                DecisionTree<Boolean> importTree = importTransBuilder.compute();
 
-                  // Should only do this for Simulator, but leaving out smt for now.
-                  //importTransBuilder.normalize(importTree);
-                  //importTree.optimize();
+                //importTree.optimize();
 
-                  TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
-                  List<Tuple<String, String>> impPolicies = importTreeCompiler.toNvStrings();
-
-                  StringBuilder importString = new StringBuilder();
-
-                  numberOfPolicies = impPolicies.size();
-                  // If there is only one policy there is no branching on prefixes just map the policy.
-                  if (numberOfPolicies == 1) {
-                    importString.append("     map (bgpRouteImport (fun prot b -> \n")
-                        .append("           ")
-                        .append(impPolicies.get(0).getSecond())
-                        .append(")) \n");
-                  } else {
-                    for (int idx = 0; idx < numberOfPolicies; idx++) {
-                      importString.append("     let x =\n")
-                          .append("     mapIf (fun p -> let (prefix, prefixLen) = p in\n"
-                              + "                   ")
-                          .append(impPolicies.get(idx).getFirst())
-                          .append(")\n")
-                          .append("         (bgpRouteImport (fun prot b ->\n")
-                          .append("               ")
-                          .append(impPolicies.get(idx).getSecond())
-                          .append(")) x \n");
-                          importString.append("     in\n");
-                      }
-                    }
-                    importString.append("     x\n\n");
-
-                String impPolicyName = compiledImportPolicies.get(importString.toString());
-                if (impPolicyName == null) {
-                  impPolicyName = "bgpImportPol" + compiledImportPolicies.size();
-                  sb.append("let ").append(impPolicyName).append(" x =\n")
-                      .append(importString.toString());
-                  compiledImportPolicies.put(importString.toString(), impPolicyName);
-                }
-                edgeToImportPolicy.put(edge, impPolicyName);
-                  }
-                }
+                TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
+                impPolicy = importTreeCompiler.toNvString();
               }
             }
+            StringBuilder importString = new StringBuilder();
+
+            /* Add AS PATH setting */
+            if (_flags.doASPath()) {
+              importString.append("  match b with\n")
+                  .append("  | None -> None\n")
+                  .append("  | Some b ->\n");
+              importString.append ("    let (u~v) = e in\n")
+                  .append("    let b = {b with bgpAS = b.bgpAS[u := true]} in\n");
+              importString.append("       ");
+              if (impPolicy.equals("b"))
+                importString.append("Some b\n");
+              else importString.append(impPolicy).append("))\n");
+            }
+
+            if (importString.toString().equals(""))
+              importString.append(impPolicy);
+
+            /* Map the import policy to a policy name */
+            String impPolicyName = compiledImportPolicies.get(importString.toString());
+            if (impPolicyName == null) {
+              impPolicyName = "bgpImportPol" + compiledImportPolicies.size();
+
+              // Only consider the import policy if it is non-empty or if we need to add AS path tracking.
+//              if (!importString.equals("b")) {
+                sb.append("let ").append(impPolicyName).append(" e prefix prefixLen b =\n").append(importString);
+                sb.append("\n\n");
+                compiledImportPolicies.put(importString.toString(), impPolicyName);
+//              }
+            }
+//            if (!importString.equals("b"))
+              edgeToImportPolicy.put(edge, impPolicyName);
           }
         }
+      }
+    }
     Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> ret = new Tuple<>(edgeToExportPolicy, edgeToImportPolicy);
-      return ret;
+    return ret;
+  }
+
+
+  private Map<Protocol, String> redistributeIntoBgp(String x,
+      Table2<String, Protocol, Set<Protocol>> redistributionTable, String router) {
+    Set<Protocol> protocols = redistributionTable.get(router, Protocol.BGP);
+    Map<Protocol, String> redistributedRoutes = new HashMap<>();
+
+    if (protocols != null && protocols.contains(Protocol.CONNECTED)) {
+      // Default bgp attribute for connected
+      redistributedRoutes.put(Protocol.CONNECTED, _attrs.buildBgpAttribute("100","20u8","0","80",
+          "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
     }
+    else { redistributedRoutes.put(Protocol.CONNECTED, "None"); }
 
-
-    private Map<Protocol, String> redistributeIntoBgp(String x,
-        Table2<String, Protocol, Set<Protocol>> redistributionTable, String router) {
-      Set<Protocol> protocols = redistributionTable.get(router, Protocol.BGP);
-      Map<Protocol, String> redistributedRoutes = new HashMap<>();
-
-      if (protocols != null && protocols.contains(Protocol.CONNECTED)) {
-        // Default bgp attribute for connected
-        redistributedRoutes.put(Protocol.CONNECTED, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
-      }
-      else { redistributedRoutes.put(Protocol.CONNECTED, "None"); }
-
-      //TODO: Nexthop and origin might need to be different.
-      if (protocols.contains(Protocol.STATIC)) {
-        redistributedRoutes.put(Protocol.STATIC, _attrs.buildBgpAttribute("100","20u8","0","80",
-            "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
-      }
-      else { redistributedRoutes.put(Protocol.STATIC, "None"); }
-
-      // For ospf
-      //TODO: I think the med here needs to be set to the OSPF weight, but we can't cast it yet.
-      //TODO: Do we need to check whether we redistribute E1 and E2? We probably need to.
-      if (protocols.contains(Protocol.OSPF)) {
-        String bospf = "(match " + x + ".ospf with\n"
-            + " | None -> None\n" + " | Some o -> "
-            + _attrs.buildBgpAttribute("100",
-            "20u8",
-            "0",
-            "80",
-            "{}",
-            "o.ospfNextHop",
-            "o.ospfOrigin", "{}") +")";
-        redistributedRoutes.put(Protocol.OSPF, bospf);
-      }
-      else {redistributedRoutes.put(Protocol.OSPF, "None");}
-      return redistributedRoutes;
+    //TODO: Nexthop and origin might need to be different.
+    if (protocols.contains(Protocol.STATIC)) {
+      redistributedRoutes.put(Protocol.STATIC, _attrs.buildBgpAttribute("100","20u8","0","80",
+          "{}",_flags.doMultiPath() ? "{}" : "None", "getSourceNode e", "{}"));
     }
+    else { redistributedRoutes.put(Protocol.STATIC, "None"); }
 
-    /* Set BGP multiPath and nextHop in an attribute of the transfer function */
+    // For ospf
+    //TODO: I think the med here needs to be set to the OSPF weight, but we can't cast it yet.
+    //TODO: Do we need to check whether we redistribute E1 and E2? We probably need to.
+    if (protocols.contains(Protocol.OSPF)) {
+      String bospf = "(match " + x + ".ospf with\n"
+          + " | None -> None\n" + " | Some o -> "
+          + _attrs.buildBgpAttribute("100",
+          "20u8",
+          "0",
+          "80",
+          "{}",
+          "o.ospfNextHop",
+          "o.ospfOrigin", "{}") +")";
+      redistributedRoutes.put(Protocol.OSPF, bospf);
+    }
+    else {redistributedRoutes.put(Protocol.OSPF, "None");}
+    return redistributedRoutes;
+  }
+
+  /* Set BGP multiPath and nextHop in an attribute of the transfer function */
   private void bgpNextHop(StringBuilder sb) {
     if (_flags.doMultiPath()) {
       sb.append("        let b = {b with bgpNextHop = match flipEdge e with | None -> {} | Some fe -> {fe}} in\n");
     }
     else {
-    sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
+      sb.append("        let b = {b with bgpNextHop = flipEdge e} in\n");
     }
   }
 
   /***** BGP Transfer Function for Single Prefix ****/
-  private void bgpTrans(StringBuilder sb, Map<GraphEdge, String> edgeMap,
+  private void bgpTrans(StringBuilder sb,
       Table2<String, Protocol, Set<Protocol>> redistributionTable) {
 
-    sb.append(" let transferBgp d e x0 =\n");
 
     // Get the origin of the route if model requires it.
     /*if (_flags.doOrigin()) {
@@ -436,129 +509,100 @@ public class NVCompiler {
 
 
     Set<String> bgpSet = new HashSet<>();
+
+    Tuple<Map<GraphEdge, String>, Map<GraphEdge, String>> policies =
+        computeEquivalentPolicies(sb);
+
+    sb.append("\nlet transferBgp d e x0 =\n");
+
     for (Entry<String, Configuration> entry : _graph.getConfigurations().entrySet()) {
       String router = entry.getKey();
       Configuration config = entry.getValue();
 
       // Compute redistribution of other protocols into BGP for this router
+      // See this: https://www.juniper.net/documentation/en_US/junose15.1/information-products/topic-collections/swconfig-bgp-mpls/index.html?id-24039.html
+      // By default you only redistribute the best route into BGP, so we redistribute based on the selected protocol.
       Map<Protocol, String> redistAttrs = redistributeIntoBgp("x0", redistributionTable, router);
+
       for (GraphEdge edge : _graph.getEdgeMap().get(router)) {
         if (edge.getPeer() != null) {
           if (_graph.isEdgeUsed(config, Protocol.BGP, edge) && !bgpSet.contains(_edgeMap.get(edge))) {
             if (!headerCodeEmitted) {
               sb.append("  let (prefix, prefixLen) = d in\n")
-                  .append("let prot = x0.selected in\n") // Very much a hack, there's almost certainly a better way to do this
+                  .append("  let prot = x0.selected in\n")
                   .append(" match e with\n");
               headerCodeEmitted = true;
             }
-            bgpSet.add(_edgeMap.get(edge));
-            RoutingPolicy policy = _graph.findExportRoutingPolicy(router, Protocol.BGP, edge);
-            List<Statement> statements;
-            if ((policy != null) && (policy.getStatements() != null)) {
-              statements = policy.getStatements();
-            } else {
-              statements = Collections.emptyList();
-            }
 
-            String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
-                               "       | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
-            String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
-                               "       | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
-            String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
-                               "       | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
+            // Get export policy name
+            String expPolicy = policies.getFirst().get(edge);
 
-            sb.append("   | ").append(edgeMap.get(edge)).append(" ->\n");
-            // Don't bother writing a match if it would be trivial
-            if (connected.equals("") && stat.equals("") && ospf.equals("")) {
-              sb.append("   let b = x0.bgp in\n");
-            } else {
-              sb.append("   (* Handling redistribution into BGP *)\n")
-                .append("   let b = \n")
-                .append("     match x0.selected with\n")
-                .append(connected)
-                .append(stat)
-                .append(ospf)
-                .append("     | _ -> x0.bgp\n")
-                .append("   in\n");
-            }
-            sb.append("      (match b with\n")
-              .append("      | None -> None\n")
-              .append("      | Some b ->\n");
-            if (_flags.doASPath()) {
-              sb.append("        if (let (u~v) = e in b.bgpAS[v]) then None else\n");
-            }
-            if (_flags.doNextHop()) {
-              bgpNextHop(sb);
-            }
-
-            // Build the decision tree for the export policy
-            TransferFunctionBuilder exportTransBuilder = new TransferFunctionBuilder(config,
-                statements,
-                edge,
-                true);
-            DecisionTree<Boolean> exportTree = exportTransBuilder.compute();
-
-            // Apply some basic optimizations
-//            exportTree.optimize();
-            /* Build NV string that corresponds to export tree */
-            TreeCompiler exportTreeCompiler = new TreeCompiler(exportTree, null, config, _flags);
-
-            String impPolicy = "Some b";
-            String expPolicy = exportTreeCompiler.toNvString();
-            sb.append("     let b = \n").append("           ").append(expPolicy).append("\n")
-                .append("     in\n");
-
-            // match for import
-          sb.append("         (match b with\n")
-                .append("         | None -> None\n")
-                .append("         | Some b ->\n");
-            if (_flags.doASPath()) {
-              sb.append ("           let (u~v) = e in\n")
-                  .append("           let b = {b with bgpAS = b.bgpAS[u := true]} in\n");
-            }
-            // Do import policy
-            List<Statement> importStatements;
-
-            // DecisionTree<Boolean> policyTree = exportTree;
+            // Get import policy name
             GraphEdge invEdge = _graph.getOtherEnd().get(edge);
-            //TreeCompiler treeCompiler = null;
+            String impPolicy = policies.getSecond().get(invEdge);
+            sb.append("   | ")
+                .append(_edgeMap.get(edge));
+            sb.append(" -> ");
 
-            if (invEdge != null) {
-              String otherRouter = invEdge.getRouter();
-              RoutingPolicy importPolicy = _graph.findImportRoutingPolicy(otherRouter,
-                  Protocol.BGP,
-                  invEdge);
-              Configuration invConfig = _graph.getConfigurations().get(otherRouter);
-              if (importPolicy != null) {
+            /* Adding redistribution into BGP */
+            //NOTE: we have to handle redistribution here because it is a per router setting
+            // not a per edge policy setting; the function computeEquivalentPolicies computes
+            // equivalent edge policies only (e.g., route-maps but not redistribution).
+            String connected = redistAttrs.get(Protocol.CONNECTED).equals("None") ? "" :
+                "     | Some 0u2 -> " + redistAttrs.get(Protocol.CONNECTED) + "\n";
+            String stat = redistAttrs.get(Protocol.STATIC).equals("None") ? "" :
+                "     | Some 1u2 -> " + redistAttrs.get(Protocol.STATIC) + "\n";
+            String ospf = redistAttrs.get(Protocol.OSPF).equals("None") ? "" :
+                "     | Some 2u2 -> " + redistAttrs.get(Protocol.OSPF) + "\n";
 
-                importStatements = importPolicy.getStatements();
-                TransferFunctionBuilder importTransBuilder = new TransferFunctionBuilder(invConfig,
-                    importStatements,
-                    invEdge,
-                    false);
-                DecisionTree<Boolean> importTree = importTransBuilder.compute();
-                importTree.optimize();
-
-                TreeCompiler importTreeCompiler = new TreeCompiler(importTree, invConfig, null, _flags);
-                impPolicy = importTreeCompiler.toNvString();
-                // Add node to AS path if option is enabled.
-                    sb.append("           ").append(impPolicy).append("))\n");
-                //policyTree = importTransBuilder.compute(exportTree);
-                //treeCompiler = new TreeCompiler(policyTree, invConfig, config);
-              }
-              else { sb.append("      ").append(impPolicy).append("))\n"); }
+            String routeName = "x0.bgp";
+            // Don't bother emitting a match if it would be trivial
+            if (!(connected.equals("") && stat.equals("") && ospf.equals(""))) {
+              sb.append("   \n(* Handling redistribution into BGP *)\n")
+                  .append("   let b = \n")
+                  .append("     match x0.selected with\n")
+                  .append(connected)
+                  .append(stat)
+                  .append(ospf)
+                  .append("     | _ -> x0.bgp\n")
+                  .append("   in\n");
+              routeName = "b";
             }
-            else { sb.append("      ").append(impPolicy).append("))\n"); }
+
+            if (impPolicy == null) {
+                  sb.append("    " + expPolicy).append(" e prefix prefixLen prot " + routeName + "\n");
+            } else {
+              sb.append(impPolicy).append(" e prefix prefixLen (").append(expPolicy).append(" e prefix prefixLen prot "+ routeName +")\n");
+              }
+
+
+
+//            // match for import
+//            if (impPolicy.equals("b") && !_flags.doASPath()) {
+//              sb.append("      ").append(impPolicy).append(")\n");
+//            }
+//            else {
+//              sb.append("         (match b with\n")
+//                  .append("         | None -> None\n")
+//                  .append("         | Some b ->\n");
+//              if (_flags.doASPath()) {
+//                sb.append ("           let (u~v) = e in\n")
+//                    .append("           let b = {b with bgpAS = b.bgpAS[u := true]} in\n");
+//              }
+//              sb.append("       ");
+//              if (impPolicy.equals("b"))
+//                sb.append("Some b))\n");
+//              else sb.append(impPolicy).append("))\n");
+//            }
           }
         }
       }
+      if (!headerCodeEmitted) {
+        sb.append(" None");
+      }
     }
-    if (!headerCodeEmitted) {
-      sb.append(" None");
-    }
-      sb.append("\n\n");
+    sb.append("\n\n");
   }
-
 
   private void ospfTrans(boolean singlePrefix, StringBuilder sb) {
     sb.append(" let transferOspf edge o =\n")
@@ -590,6 +634,7 @@ public class NVCompiler {
     }
     sb.append("     | _ -> None)\n\n");
   }
+
 
   // Type declarations
   private void printAttributeType(boolean singlePrefix, StringBuilder sb) {
@@ -660,11 +705,11 @@ public class NVCompiler {
         .append("  else if o1.weight <u16 o2.weight then o1\n")
         .append("  else if o2.weight <u16 o1.weight then o2\n");
     if (_flags.doMultiPath()) {
-        sb.append("  else {o1 with ospfNextHop = union o1.ospfNextHop o2.ospfNextHop}\n\n");
-      }
+      sb.append("  else {o1 with ospfNextHop = union o1.ospfNextHop o2.ospfNextHop}\n\n");
+    }
     else {
-        sb.append("  else {o1 with ospfMultiPath = o1.ospfMultiPath +. o2.ospfMultiPath}\n\n");
-      }
+      sb.append("  else {o1 with ospfMultiPath = o1.ospfMultiPath +. o2.ospfMultiPath}\n\n");
+    }
 
 
 
@@ -685,13 +730,13 @@ public class NVCompiler {
         .append("  else if b1.med < b2.med then b1\n")
         .append("  else if b1.med > b2.med then b2\n");
 
-        if (_flags.doMultiPath()) {
-          sb.append("  else if multiPath then {b1 with bgpNextHop = union b1.bgpNextHop b2.bgpNextHop}\n")
-              .append("  else b1\n\n");
-          }
-        else {
-            sb.append("  else b1\n\n");
-          }
+    if (_flags.doMultiPath()) {
+      sb.append("  else if multiPath then {b1 with bgpNextHop = union b1.bgpNextHop b2.bgpNextHop}\n")
+          .append("  else b1\n\n");
+    }
+    else {
+      sb.append("  else b1\n\n");
+    }
 
 
     sb.append("(* Determine which of the four protocols has the best route by comparing their ADs *)\n")
@@ -777,18 +822,176 @@ public class NVCompiler {
     sb.append("\n");
   }
 
-  //TODO: implement union in probNv.
+  /* Writes a csv file associating nodes to the prefixes they announce. */
+  private void writeOriginatedPrefixes(String file)  {
+
+      File directory = new File(file);
+      if (!directory.exists()) {
+        directory.mkdir();
+      }
+    File csvFile = new File(file + "/" + file+"Prefixes.csv");
+
+    try {
+      FileWriter csvWriter = new FileWriter(csvFile);
+
+      for (Entry<Integer, Set<Prefix>> e : _perNodePrefixes.entrySet()) {
+        if (!e.getValue().isEmpty())
+          csvWriter.append(e.getKey().toString());
+        for (Prefix p : e.getValue()) {
+          csvWriter.append(",").append(p.toString()).append("\n");
+        }
+      }
+
+      csvWriter.flush();
+      csvWriter.close();
+    } catch (IOException ioException) {
+      ioException.printStackTrace();
+    }
+  }
+
+  /* Writes a csv file with default failure probabilities and link capacity info if it does not exist */
+  private void writeFailureProbabilities(String file, boolean nodes)  {
+
+    if (nodes) {
+      File directory = new File(file);
+      if (!directory.exists()) {
+        directory.mkdir();
+      }
+    }
+    File csvFile = new File(file + "/" + file+"Failure.csv");
+    // append for the links.
+    try {
+      FileWriter csvWriter = new FileWriter(csvFile, !nodes);
+
+      if (!nodes) {
+        for (GraphEdge e : _graph.getAllRealEdges()) {
+          Optional<String> edgeStr = graphEdgeToNVEdge(e);
+          if (edgeStr.isPresent()) {
+
+            csvWriter.append("link,").append(edgeStr.get()).append(",").append("0.005").append(",").append("40000");
+            csvWriter.append("\n");
+            _linkFailureProbability.put(edgeStr.get(), 0.005);
+            _linkCapacities.put(edgeStr.get(), 40000.0);
+            //Add to reverse edge map at this point if the file is created.
+            _reverseEdgeMap.put(edgeStr.get(), e);
+          }
+        }
+      } else {
+        for (String e : _graph.getRouters()) {
+          csvWriter.append("node,").append(e).append(",").append("0.01");
+          csvWriter.append("\n");
+          _nodeFailureProbability.put(e, 0.01);
+        }
+      }
+
+      csvWriter.flush();
+      csvWriter.close();
+    } catch (IOException ioException) {
+      ioException.printStackTrace();
+    }
+  }
+
+  /* Parse the failure probability of each link/device. If the file does not exist/create it.
+   *  Expected format is type_of_failure, name, probability */
+  private void parseFailureProbabilities(File csvFile, boolean node)  {
+    try (Scanner scanner = new Scanner(csvFile)) {
+
+      // CSV file delimiter
+      Pattern DELIMITER = Pattern.compile("[\\r\\n;]+|,");
+
+      // set comma as delimiter
+      scanner.useDelimiter(DELIMITER);
+
+      while (scanner.hasNext()) {
+        String type = scanner.next();
+        String name = scanner.next();
+        String prob = scanner.next();
+
+        if (type.equals("link") && !node) {
+          String capacity = scanner.next();
+          _linkFailureProbability.put(name, Double.valueOf(prob));
+          _linkCapacities.put(name, Double.valueOf(capacity));
+        } else if (type.equals("node") && node) {
+          _nodeFailureProbability.put(name, Double.valueOf(prob));
+        }
+      }
+      // In case the file is parsed, and this is parsing for links
+      // then we need to populate the reverse edge map.
+      populateReverseEdgeMap();
+    }
+    catch (IOException ex) {
+      ex.printStackTrace();
+    }
+  }
+
+  private Optional<String> graphEdgeToNVEdge (GraphEdge ge) {
+    Integer node1 = _nodeAssignment.get(ge.getRouter());
+    Integer node2 = _nodeAssignment.get(ge.getPeer());
+    if (node2 == null)
+      return Optional.empty();
+
+    String edgeString = "(" + node1 + "~" + node2 + ")";
+    return Optional.of(edgeString);
+  }
+
+  private void populateReverseEdgeMap() {
+    for (GraphEdge ge : _graph.getAllRealEdges()) {
+      Optional<String> ges = graphEdgeToNVEdge(ge);
+      ges.ifPresent(s -> _reverseEdgeMap.put(s, ge));
+    }
+  }
+
+  /* Compiles the topology of the network.
+    The ids assigned to nodes/edges are based on the probability to fail.
+   */
+  private String compileTopology()  {
+
+    // Parse failure probabilities for nodes if there are any, otherwise generate them.
+    // We first do the nodes because we need the node assignments.
+    File csvFile = new File(_topologyModel);
+    if (_topologyModel.equals("") || !csvFile.isFile()) {
+      System.out.println("\nNo failure model provided or it was not found - generating a default failure model.");
+      writeFailureProbabilities(_filename, true);
+    }
+    else {
+      parseFailureProbabilities(csvFile, true);
+    }
 
 
-  private String compileTopology() {
+    // Group nodes by their probability
+    for (Entry<String, Double> e : _nodeFailureProbability.entrySet()) {
+      Set<String> group = _nodeGroups.computeIfAbsent(e.getValue(), k -> new TreeSet<>());
+      group.add(e.getKey());
+    }
+
+    // assign each node to a unique number starting from 0.
+    // Numbers are assigned in increasing order per failure probability group.
+    int i = 0;
+    for (Set<String> group : _nodeGroups.values()) {
+      for (String router : group) {
+        _nodeAssignment.put(router, i);
+        i++;
+      }
+    }
+
+    // Now parse/write link probabilities
+    if (_topologyModel.equals("") || !csvFile.isFile()) {
+      writeFailureProbabilities(_filename, false);
+    }
+    else {
+      parseFailureProbabilities(csvFile, false);
+    }
+
+    // Group links by their probability.
+
+    for (Entry<String, Double> e : _linkFailureProbability.entrySet()) {
+      // For every string, probability entry, then add the string to that probability group.
+      Set<String> group = _edgeGroups.computeIfAbsent(e.getValue(), k -> new TreeSet<>());
+      group.add(e.getKey());
+    }
+
     StringBuilder sb = new StringBuilder();
 
-    // assign each node to a unique number starting from 0
-    int i = 0;
-    for (String router : _graph.getRouters()) {
-      _nodeAssignment.put(router, i);
-      i++;
-    }
 
     sb.append("nodes = (").append(i).append(", {\n");
 
@@ -811,28 +1014,58 @@ public class NVCompiler {
     // We should think how to represent those in the NV network. Perhaps, as an extra
     // (or two, we used to say we need two but I don't remember why) node connected to all nodes
     // with hanging edges.
+
+    int edgeId = 0;
     sb.append("edges = {\n");
-    for (GraphEdge edge : _graph.getAllEdges()) {
-      Integer node1 = _nodeAssignment.get(edge.getRouter());
-      Integer node2 = _nodeAssignment.get(edge.getPeer());
-      String edgeString = "(" + node1 + "~" + node2 + ")";
-      if (node2 != null) {
-        _edgeMap.put(edge, edgeString);
-        if (!edgeSet.contains(edgeString)) {
-          edgeSet.add(edgeString);
+    for (Set<String> group : _edgeGroups.values()) {
+      for (String strEdge : group) {
+        GraphEdge edge = _reverseEdgeMap.get(strEdge);
+        Integer node1 = _nodeAssignment.get(edge.getRouter());
+        Integer node2 = _nodeAssignment.get(edge.getPeer());
+        _edgeMap.put(edge, strEdge);
+        _edgeIds.put(edge, edgeId);
+        _idToEdge.put(edgeId, edge);
+        if (!edgeSet.contains(strEdge)) {
+          edgeSet.add(strEdge);
           _adj.get(node1).add(node2);
-          sb.append("  ")
+          sb.append("  (")
               .append(node1)
               .append("-")
               .append(node2)
+              .append(",")
+              .append(edgeId)
+              .append(")")
               .append("; (*")
               .append(edge.toString())
               .append("*)\n");
+          edgeId++;
         }
       }
     }
+
     sb.append("}\n\n");
 
+
+    /* Emit info about the topology */
+    File topologyCsv = new File(_filename + "/" + _filename+"Topology.csv");
+    // append for the links.
+    try {
+      FileWriter csvWriter = new FileWriter(topologyCsv);
+
+      for (GraphEdge e : _graph.getAllRealEdges()) {
+          Optional<String> edgeStr = graphEdgeToNVEdge(e);
+          if (edgeStr.isPresent()) {
+            edgeId = _edgeIds.get(e);
+            csvWriter.append(e.asRouters()).append(",").append(edgeStr.get()).append(",").append(String.format("%d", edgeId));
+            csvWriter.append("\n");
+          }
+        }
+
+      csvWriter.flush();
+      csvWriter.close();
+    } catch (IOException e) {
+      e.printStackTrace();
+      }
 
     return sb.toString();
   }
@@ -847,9 +1080,9 @@ public class NVCompiler {
 
     // symbolic destination variable. For now we only use one for single prefix networks.
     // We should make it so that symbolic destinations are used to represent external messages too.
-//    if (singlePrefix) {
-//      sb.append("symbolic d : prefix\n\n");
-//    }
+    //    if (singlePrefix) {
+    //      sb.append("symbolic d : prefix\n\n");
+    //    }
 
     sb.append("(** Useful helper definitions **)\n\n");
     sb.append("let ospfIntraArea = 0u2\n")
@@ -863,7 +1096,7 @@ public class NVCompiler {
     //   sb.append("let isProtocol fib x = fib = x\n");
     // }
     // else {
-      sb.append("let isProtocol fib x =\n")
+    sb.append("let isProtocol fib x =\n")
         .append("  match fib with\n")
         .append("  | None -> false\n")
         .append("  | Some y -> x = y\n\n");
@@ -905,10 +1138,6 @@ public class NVCompiler {
       Set<Prefix> ospfPrefixes = Graph.getOriginatedNetworks(conf, Protocol.OSPF);
       Set<Prefix> bgpPrefixes = Graph.getOriginatedNetworks(conf, Protocol.BGP);
 
-      connPrefixes = connPrefixes == null ? new HashSet<>() : connPrefixes;
-      staticPrefixes = staticPrefixes == null ? new HashSet<>() : staticPrefixes;
-      ospfPrefixes = ospfPrefixes == null ? new HashSet<>() : ospfPrefixes;
-      bgpPrefixes = bgpPrefixes == null ? new HashSet<>() : bgpPrefixes;
 
       /*NOTE: Just keeping track of the BGP and OSPF routes for now
         Not sure all our configs have connected hosts to them, but it can be easily fixed if needed.
@@ -917,7 +1146,6 @@ public class NVCompiler {
       nodePrefixes.addAll(ospfPrefixes);
       nodePrefixes.addAll(bgpPrefixes);
       _perNodePrefixes.put(nodeId, nodePrefixes);
-
 
       // Prefixes originated by just one router.
       Set<Prefix> routerPrefixes = new HashSet<>();
@@ -961,15 +1189,15 @@ public class NVCompiler {
         }
         Boolean b = bgpPrefixes.contains(prefix);
 
-          InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
-          Set<Prefix> prefixS = new HashSet<>();
-          prefixS.add(prefix);
-          if (attributePrefixMap.containsKey(a)) {
-            prefixS.addAll(attributePrefixMap.get(a));
-            attributePrefixMap.replace(a, prefixS);
-          } else {
-            attributePrefixMap.put(a, prefixS);
-          }
+        InitialAttribute a = new InitialAttribute(c, s, o, b, _flags);
+        Set<Prefix> prefixS = new HashSet<>();
+        prefixS.add(prefix);
+        if (attributePrefixMap.containsKey(a)) {
+          prefixS.addAll(attributePrefixMap.get(a));
+          attributePrefixMap.replace(a, prefixS);
+        } else {
+          attributePrefixMap.put(a, prefixS);
+        }
       }
 
       /* This induces a large repetition of code but it's ok for now */
@@ -977,7 +1205,7 @@ public class NVCompiler {
         for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
           String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
           Boolean first = true;
-          sb.append("if ");
+          sb.append("    if ");
           for (Prefix pre : attrpre.getValue()) {
             if (!first) {
               sb.append(" || ");
@@ -985,28 +1213,31 @@ public class NVCompiler {
             sb.append("d = (").append(pre).append(")");
             first = false;
           }
-          sb.append(" then\n").append(initAttr).append("     else ");
+          sb.append(" then\n").append(initAttr).append("    else\n");
         }
-        sb.append("{connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
-      } else {
-        for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
-          String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
-          sb.append(initAttr);
-          for (Prefix pre : attrpre.getValue()) {
-            sb.append("    let d = d[")
-              .append(pre)
-              .append(" := route] in\n");
-          }
-        }
-        sb.append("      d\n");
+        sb.append("  {connected=None; static=None; ospf=None; bgp=None; selected=None;}\n");
       }
+
+      //      else {
+      //        for (Entry<InitialAttribute, Set<Prefix>> attrpre : attributePrefixMap.entrySet()) {
+      //          String initAttr = attrpre.getKey().compileAttr(nodeId, singlePrefix);
+      //          sb.append(initAttr);
+      //          for (Prefix pre : attrpre.getValue()) {
+      //            sb.append("    let d = d[")
+      //              .append(pre)
+      //              .append(" := route] in\n");
+      //          }
+      //        }
+      //        sb.append("      d\n");
+      //      }
     }
+
     if (singlePrefix) {
       sb.append("  | _ -> {connected=None; static=None; ospf=None; bgp=None; selected=None;}\n\n");
     }
-    else {
-      sb.append("  | _ -> d\n\n");
-    }
+    //    else {
+    //      sb.append("  | _ -> d\n\n");
+    //    }
 
 
     // Redistribution into BGP
@@ -1019,7 +1250,9 @@ public class NVCompiler {
     ospfTrans(singlePrefix,sb);
 
     // BGP transfer function
-      bgpTrans(sb, _edgeMap, redistributionTable.getRedistributedProtocols());
+
+    bgpTrans(sb, redistributionTable.getRedistributedProtocols());
+
 
     if (singlePrefix) {
       sb.append("let trans d edge x = \n")
@@ -1047,10 +1280,13 @@ public class NVCompiler {
     String controlplane = compileControlPlane(singlePrefix);
     String dataplane = "";
 
+    /* Export the prefixes announced by each node in CSV form.*/
+    writeOriginatedPrefixes(_filename);
+
     Tuple<String, Map<Prefix, String>> allFaults = null;
     Tuple<String, Map<Prefix, String>> allLinkFaults = null;
     Tuple<String, Map<Prefix, String>> boundedLinkFaults = null;
-    FaultAnalysis faults = new FaultAnalysis(_filename, _nodeAssignment, _edgeMap, _adj, _nodeAssignment.size(), _originated, _flags.getSymbolicOrder());
+    FaultAnalysis faults = new FaultAnalysis(_filename, _nodeAssignment, _edgeMap, _adj, _nodeAssignment.size(), _originated, _flags.getSymbolicOrder(), _linkFailureProbability, _nodeFailureProbability, _edgeGroups);
 
     if (_flags.doNodeFaults()) {
       allFaults = faults.compileAllFaults(singlePrefix);
@@ -1058,11 +1294,11 @@ public class NVCompiler {
 
     }
     if (_flags.doBoundedLinkFaults()) {
-      boundedLinkFaults = faults.compiledBoundedLinkFaults(false, _flags.getLinkFaultsBound(), !_flags.doDataplane());
+      boundedLinkFaults = faults.compileBoundedLinkFaults(_flags.conditionalProbabilityModel(), _flags.getLinkFaultsBound(), !_flags.doDataplane());
     }
 
     if (_flags.doDataplane()) {
-      Dataplane data = new Dataplane(_nodeAssignment, _edgeMap, _originated, _perNodePrefixes, faults, _flags);
+      Dataplane data = new Dataplane(_nodeAssignment, _edgeMap, _reverseEdgeMap, _idToEdge, _originated, _perNodePrefixes, _linkCapacities, faults, _flags);
       dataplane = data.generateDataplane();
     }
 

@@ -344,6 +344,7 @@ public class Batfish extends PluginConsumer implements IBatfish {
   public static void initTestrigSettings(Settings settings) {
     SnapshotId testrig = settings.getTestrig();
     Path containerDir = settings.getStorageBase().resolve(settings.getContainer().getId());
+
     if (testrig != null) {
       applyBaseDir(settings.getBaseTestrigSettings(), containerDir, testrig);
       SnapshotId deltaTestrig = settings.getDeltaTestrig();
@@ -2140,6 +2141,13 @@ public class Batfish extends PluginConsumer implements IBatfish {
     CommonUtil.deleteDirectory(outputPath);
     Path testRigPath = _testrigSettings.getInputPath();
     serializeVendorConfigs(testRigPath, outputPath);
+  }
+
+  @Override
+   public String getInputPath() {
+//    System.out.println(_settings.get_testRigName());
+//    System.out.println(_settings.get_testRigDir());
+    return null;
   }
 
   public Answer run() {

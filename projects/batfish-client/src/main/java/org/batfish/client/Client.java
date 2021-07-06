@@ -1610,6 +1610,8 @@ public class Client extends AbstractClient implements IClient {
     String testrigName =
         (parameters.size() > 1) ? parameters.get(1) : DEFAULT_SNAPSHOT_PREFIX + UUID.randomUUID();
 
+    _settings.set_testRigName(testrigName);
+    _settings.set_testRigDir(testrigLocation);
     // initialize the container if it hasn't been init'd before
     if (!isSetContainer(false)) {
       _currContainerName = _workHelper.initNetwork(null, DEFAULT_NETWORK_PREFIX);

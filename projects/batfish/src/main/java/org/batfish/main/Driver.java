@@ -283,7 +283,12 @@ public class Driver {
   public static void main(String[] args, BatfishLogger logger) {
     mainInit(args);
     _mainLogger = logger;
+//    _mainSettings.set_testRigDir(testrigDir);
+//    _mainSettings.set_testRigName(testrigName);
+//    System.out.println(testrigDir);
+//    System.out.println(testrigName);
     mainRun();
+
   }
 
   private static void mainInit(String[] args) {
@@ -525,6 +530,8 @@ public class Driver {
   private static String runBatfish(final Settings settings) {
 
     final BatfishLogger logger = settings.getLogger();
+
+
 
     try {
       final Batfish batfish =

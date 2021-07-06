@@ -12,11 +12,14 @@ public class CompilerOptions {
     nodeFaults,
     asPath,
     boundedLinkFaults,
+    conditionalFailures,
     multiPath,
   }
 
   private int _faultsBound;
   private String _symbolicOrder;
+
+  private String _trafficMatrix;
   private Set<NVFlags> flags;
 
   public CompilerOptions() {
@@ -58,9 +61,20 @@ public class CompilerOptions {
 
   public boolean doMultiPath () { return flags.contains(NVFlags.multiPath); }
 
+  public boolean conditionalProbabilityModel () { return flags.contains(NVFlags.conditionalFailures); }
+
   public int getLinkFaultsBound () { return _faultsBound;}
 
   public void setLinkFaultsBound (int x) { _faultsBound = x;}
+
+  public String getTrafficMatrix() {
+    return _trafficMatrix;
+  }
+
+  public void setTrafficMatrix(String _trafficMatrix) {
+    this._trafficMatrix = _trafficMatrix;
+  }
+
 
   public String getSymbolicOrder () { return _symbolicOrder;}
 

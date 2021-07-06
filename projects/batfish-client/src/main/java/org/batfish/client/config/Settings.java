@@ -65,6 +65,26 @@ public class Settings extends BaseSettings {
   private Integer _tracingAgentPort;
   private boolean _tracingEnable;
 
+  private String _testRigName;
+
+  public String get_testRigName() {
+    return _testRigName;
+  }
+
+  public void set_testRigName(String _testRigName) {
+    this._testRigName = _testRigName;
+  }
+
+  public String get_testRigDir() {
+    return _testRigDir;
+  }
+
+  public void set_testRigDir(String _testRigDir) {
+    this._testRigDir = _testRigDir;
+  }
+
+  private String _testRigDir;
+
   public Settings(String[] args) {
     super(
         getConfig(

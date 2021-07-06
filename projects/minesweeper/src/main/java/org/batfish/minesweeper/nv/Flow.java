@@ -61,4 +61,8 @@ public class Flow {
         "u16; protocol = " + this._protocol.number() + "u8; flowSize = " + this._flowSize + "}";
   }
 
+//  public String compile() {
+//    return "{dstIp = " + this._dstIp.toString() + "; flowSize = " + this._flowSize + "}";
+//  }
+
 }

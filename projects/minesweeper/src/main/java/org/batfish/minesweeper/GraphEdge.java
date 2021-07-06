@@ -121,4 +121,10 @@ public class GraphEdge {
         + ","
         + (_end == null ? "_" : _end.getName());
   }
+
+  public String asRouters() {
+    return _router
+        + " --> "
+        + (_peer == null ? "_" : _peer);
+  }
 }

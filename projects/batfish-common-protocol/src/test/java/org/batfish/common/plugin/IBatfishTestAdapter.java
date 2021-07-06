@@ -1,5 +1,6 @@
 package org.batfish.common.plugin;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -259,6 +260,12 @@ public class IBatfishTestAdapter implements IBatfish {
   public SnapshotId getTestrigName() {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public String getInputPath() {
+    throw new UnsupportedOperationException();
+  }
+
 
   @Nonnull
   @Override
