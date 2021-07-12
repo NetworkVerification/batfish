@@ -179,8 +179,6 @@ public class TreeCompiler {
         }
       }
 
-//      System.out.println("PrefixRange: " + acc);
-
       return acc;
 
     } else if (e instanceof NamedPrefixSet) {

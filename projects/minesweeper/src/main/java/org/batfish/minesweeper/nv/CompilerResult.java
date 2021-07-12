@@ -2,6 +2,8 @@ package org.batfish.minesweeper.nv;
 
 import java.util.Map;
 import org.batfish.datamodel.Prefix;
+import org.batfish.datamodel.acl.TrueExpr;
+import org.batfish.minesweeper.utils.Triple;
 import org.batfish.minesweeper.utils.Tuple;
 
 public class CompilerResult {
@@ -12,9 +14,9 @@ public class CompilerResult {
   private Tuple<String, Map<Prefix, String>> _allLinkFaults;
 
 
-  private Tuple<String, Map<Prefix, String>> _boundedLinkFaults;
+  private Triple<Tuple<String, String>, Map<Prefix, String>, Map<Prefix, String>> _boundedLinkFaults;
 
-  public CompilerResult(String _controlPlane, String _dataPlane, Tuple<String, Map<Prefix, String>> _allNodeFaults, Tuple<String, Map<Prefix, String>> _allLinkFaults, Tuple<String, Map<Prefix, String>> _boundedLinkFaults) {
+  public CompilerResult(String _controlPlane, String _dataPlane, Tuple<String, Map<Prefix, String>> _allNodeFaults, Tuple<String, Map<Prefix, String>> _allLinkFaults, Triple<Tuple<String, String>, Map<Prefix, String>, Map<Prefix, String>>  _boundedLinkFaults) {
     this._controlPlane = _controlPlane;
     this._dataPlane = _dataPlane;
     this._allNodeFaults = _allNodeFaults;
@@ -54,11 +56,11 @@ public class CompilerResult {
     this._allLinkFaults = allLinkFaults;
   }
 
-  public Tuple<String, Map<Prefix, String>> getBoundedLinkFaults() {
-    return _boundedLinkFaults;
-  }
-
-  public void setBoundedLinkFaults(Tuple<String, Map<Prefix, String>> _boundedLinkFaults) {
-    this._boundedLinkFaults = _boundedLinkFaults;
-  }
+//  public Triple<String, Map<Prefix, String>, Map<Prefix, String>> getBoundedLinkFaults() {
+//    return _boundedLinkFaults;
+//  }
+//
+//  public void setBoundedLinkFaults(Triple<String, Map<Prefix, String>, Map<Prefix, String>>  _boundedLinkFaults) {
+//    this._boundedLinkFaults = _boundedLinkFaults;
+//  }
 }

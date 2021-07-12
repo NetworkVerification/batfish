@@ -19,6 +19,10 @@ public class Environment implements IDeepCopy<Environment> {
 
   private String _bgpNextHop;
 
+  private String _isIBGP;
+
+  private String _igpMetric;
+
   private String _protocol;
 
   private String _prefixLength;
@@ -35,6 +39,8 @@ public class Environment implements IDeepCopy<Environment> {
     this._communities = "b.comms";
     this._bgpOrigin = "b.bgpOrigin";
     this._bgpNextHop = "b.bgpNextHop";
+    this._isIBGP = "b.ibgp";
+    this._igpMetric = "b.igpMetric";
     this._protocol = "prot";
     this._prefixLength = "prefixLen";
     this._prefixValue = "prefix";
@@ -49,6 +55,8 @@ public class Environment implements IDeepCopy<Environment> {
       String communities,
       String bgpOrigin,
       String bgpNextHop,
+      String iBGP,
+      String igpMetric,
       String protocol,
       String prefixLength,
       String prefixValue,
@@ -60,6 +68,8 @@ public class Environment implements IDeepCopy<Environment> {
     this._communities = communities;
     this._bgpOrigin = bgpOrigin;
     this._bgpNextHop = bgpNextHop;
+    this._isIBGP = iBGP;
+    this._igpMetric = igpMetric;
     this._protocol = protocol;
     this._prefixLength = prefixLength;
     this._prefixValue = prefixValue;
@@ -142,6 +152,22 @@ public class Environment implements IDeepCopy<Environment> {
 
   public void set_valid(boolean v) { this._valid = v; }
 
+  public String get_isIBGP() {
+    return _isIBGP;
+  }
+
+  public void set_isIBGP(String _isIBGP) {
+    this._isIBGP = _isIBGP;
+  }
+
+  public String get_igpMetric() {
+    return _igpMetric;
+  }
+
+  public void set_igpMetric(String _igpMetric) {
+    this._igpMetric = _igpMetric;
+  }
+
   @Override
   public Environment deepCopy() {
     Environment env = new Environment();
@@ -156,6 +182,8 @@ public class Environment implements IDeepCopy<Environment> {
     env.set_prefixLength(this.get_prefixLength());
     env.set_prefixValue(this.get_prefixValue());
     env.set_valid(this.get_valid());
+    env.set_isIBGP(this.get_isIBGP());
+    env.set_igpMetric(this.get_igpMetric());
     return env;
   }
 }

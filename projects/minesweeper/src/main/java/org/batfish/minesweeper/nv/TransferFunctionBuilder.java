@@ -1,6 +1,5 @@
 package org.batfish.minesweeper.nv;
 
-
 import static org.batfish.minesweeper.CommunityVarCollector.collectCommunityVars;
 import static org.batfish.minesweeper.nv.NVLang.communityVarToNvValue;
 import static org.batfish.minesweeper.nv.NVLang.mkInt;
@@ -8,7 +7,6 @@ import static org.batfish.minesweeper.nv.NVLang.mkInt;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -21,7 +19,6 @@ import org.batfish.datamodel.routing_policy.expr.BooleanExpr;
 import org.batfish.datamodel.routing_policy.expr.BooleanExprs;
 import org.batfish.datamodel.routing_policy.expr.CallExpr;
 import org.batfish.datamodel.routing_policy.expr.Conjunction;
-import org.batfish.datamodel.routing_policy.expr.ConjunctionChain;
 import org.batfish.datamodel.routing_policy.expr.DecrementLocalPreference;
 import org.batfish.datamodel.routing_policy.expr.DecrementMetric;
 import org.batfish.datamodel.routing_policy.expr.Disjunction;
@@ -58,7 +55,6 @@ import org.batfish.datamodel.routing_policy.statement.Statement;
 import org.batfish.datamodel.routing_policy.statement.Statements.StaticStatement;
 import org.batfish.minesweeper.CommunityVar;
 import org.batfish.minesweeper.GraphEdge;
-import org.batfish.minesweeper.Protocol;
 import org.batfish.minesweeper.TransferParam;
 import org.batfish.minesweeper.TransferParam.CallContext;
 import org.batfish.minesweeper.utils.Tuple;
@@ -518,6 +514,11 @@ class TransferFunctionBuilder {
 
       } else if (stmt instanceof PrependAsPath) {
         p.debug("PrependAsPath");
+        /* TODO: Currently we do not add the ASes in the ASPATH;
+        we model the ASPATH as a set of node identifiers whose main purpose is to do loop detection
+        so it is not straightforward to add this. We would have to model ASPATH as
+        a set of ASNs and associate ASNs with NV nodes - doable but not worth it right now.
+        */
 
         PrependAsPath pap = (PrependAsPath) stmt;
         Integer prependCost = prependLength(pap.getExpr());
@@ -862,11 +863,20 @@ class TransferFunctionBuilder {
 
   private void applyMetricUpdate(DecisionTree<Boolean> t) {
     if (_isExport) {
+      // On export update attributes like path cost and local-pref.
       for (Node<Boolean> leaf : t.getLeafs()) {
         Environment env = leaf.getEnv().getData();
-        env.set_cost(env.get_cost() + " + 1");
-        // Local-Preference is not exported, so set it to default value if it's an export.
-        env.set_lp("100");
+        if (!_graphEdge.isAbstract()) {
+          // For eBGP increase the path cost by 1
+          env.set_cost(env.get_cost() + " + 1");
+          // Local-Preference is not exported, so set it to default value if it's an export.
+          env.set_lp("100");
+        }
+        else {
+          env.set_isIBGP("true");
+          env.set_igpMetric("(match igpVU with | None -> 0u16 | Some o -> o.weight)");
+        }
+        // Otherwise (i.e., for iBGP) do not change the path cost
       }
     }
   }

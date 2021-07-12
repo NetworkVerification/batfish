@@ -16,7 +16,9 @@ public class Attributes {
         String _communities,
         String _nexthop,
         String _origin,
-        String _asSet) {
+        String _asSet,
+        String _ibgp,
+        String _igpMetric) {
     return "Some {bgpAd="
         + _ad
         + "; lp="
@@ -30,6 +32,8 @@ public class Attributes {
       + (_flags.doOrigin() ? "; bgpOrigin=" + _origin : "")
       + (_flags.doNextHop() ? "; bgpNextHop=" + _nexthop : "")
       + (_flags.doASPath() ? "; bgpAS=" + _asSet : "")
+      + "; ibgp=" + _ibgp
+      + "; igpMetric=" + _igpMetric
       + "}";
   }
 
@@ -59,6 +63,8 @@ public class Attributes {
         + (_flags.doNextHop() && _flags.doMultiPath() ? " bgpNextHop: set[tedge];" :
                       (_flags.doNextHop() ? " bgpNextHop: option[tedge];" : ""))
         + (_flags.doASPath() ? " bgpAS: set[tnode];" : "")
+        + " ibgp: bool;"
+        + " igpMetric: int16;"
         + "}";
   }
 

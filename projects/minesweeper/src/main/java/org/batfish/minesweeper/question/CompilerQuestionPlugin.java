@@ -19,6 +19,7 @@ import org.batfish.minesweeper.nv.CompilerOptions;
 import org.batfish.minesweeper.nv.CompilerOptions.NVFlags;
 import org.batfish.minesweeper.nv.CompilerResult;
 import org.batfish.minesweeper.nv.NVCompiler;
+import org.batfish.minesweeper.utils.Triple;
 import org.batfish.minesweeper.utils.Tuple;
 import org.batfish.question.QuestionPlugin;
 
@@ -102,23 +103,23 @@ public class CompilerQuestionPlugin extends QuestionPlugin {
         }
 
       }
-      if (flags.doBoundedLinkFaults()) {
-        Tuple<String, Map<Prefix, String>> boundedLinkFaults = f.getBoundedLinkFaults();
-        writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", boundedLinkFaults.getFirst(), "(* Bounded link faults *)\n\n");
-
-        if (!flags.doDataplane()) {
-          for (Entry<Prefix, String> e : boundedLinkFaults.getSecond().entrySet()) {
-            Ip ip = e.getKey().getStartIp();
-            int pre = e.getKey().getPrefixLength();
-            String prefixStr = ip.toString().replace('.', '_') + "_" + pre;
-            writeFile(
-                q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),
-                q.getFile() + "_" + prefixStr + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv",
-                e.getValue(),
-                "(*Bounded link faults for prefix: " + e.getKey().toString() + " *)\n\n");
-          }
-          }
-      }
+//      if (flags.doBoundedLinkFaults()) {
+//        Triple<String, Map<Prefix, String>, Map<Prefix, String>> boundedLinkFaults = f.getBoundedLinkFaults();
+//        writeFile(q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),q.getFile() + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv", boundedLinkFaults.getFirst(), "(* Bounded link faults *)\n\n");
+//
+//        if (!flags.doDataplane()) {
+//          for (Entry<Prefix, String> e : boundedLinkFaults.getSecond().entrySet()) {
+//            Ip ip = e.getKey().getStartIp();
+//            int pre = e.getKey().getPrefixLength();
+//            String prefixStr = ip.toString().replace('.', '_') + "_" + pre;
+//            writeFile(
+//                q.getFile() + "/LinkFaults" + flags.getLinkFaultsBound(),
+//                q.getFile() + "_" + prefixStr + "_" + flags.getLinkFaultsBound() + "_linkFaults.nv",
+//                e.getValue(),
+//                "(*Bounded link faults for prefix: " + e.getKey().toString() + " *)\n\n");
+//          }
+//          }
+//      }
 
       return new StringAnswerElement();
     }

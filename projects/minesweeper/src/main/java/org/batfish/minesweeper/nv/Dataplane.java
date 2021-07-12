@@ -478,7 +478,7 @@ public class Dataplane {
       StringBuilder sbParen = new StringBuilder();
       while (it.hasNext()) {
         Prefix pre = it.next();
-        sb.append("  match fwdOut (").append(_fa.ribName(pre)).append("[let (u~v) = e in u])")
+        sb.append("  match fwdOut (").append(FaultAnalysis.ribName(pre)).append("[let (u~v) = e in u])")
             .append(" e fs with\n")
             .append("  | Some (Some fs) -> Some fs\n");
 
@@ -543,7 +543,7 @@ public class Dataplane {
       while (it.hasNext()) {
         Prefix pre = it.next();
         sb.append("  match fwdOut (")
-            .append(_fa.ribName(pre))
+            .append(FaultAnalysis.ribName(pre))
             .append("[let (u~v) = e in u])")
             .append(" e fs with\n")
             .append("  | Some (Some fs) -> Some fs\n");
@@ -697,30 +697,9 @@ public class Dataplane {
     // Generate helper functions as above.
     StringBuilder sb = new StringBuilder();
 
-    if (_flags.getLinkFaultsBound() > 0) {
-      sb.append("include \"")
-          .append("LinkFaults")
-          .append(_flags.getLinkFaultsBound())
-          .append("/")
-          .append(_fa.get_filename())
-          .append("_")
-          .append(_flags.getLinkFaultsBound())
-          .append("_linkFaults.nv\"\n\n");
-    }
-    else {
-      // If this is the no fault case then include the control plane code and
-      // the solutions here
-      sb.append("include \"").append(_fa.get_filename()).append("_control.nv\"\n\n");
-
-      sb.append("let transMap d e (x : [M]attribute) = trans d e x\n\n");
-
-      for (Prefix pre : _originated) {
-        String solutionName = _fa.ribName(pre);
-        sb.append("solution ")
-            .append(solutionName)
-            .append(" = (init (").append(pre).append("), transMap (").append(pre).append("), merge)\n\n");
-      }
-    }
+    sb.append("include \"")
+        .append(_fa.get_filename())
+        .append("_control.nv\"\n\n");
 
     // Add flow type
     sb.append(getAttributeType()).append("\n\n");
